@@ -14,3 +14,6 @@ pexpect>=4.8.0
 
 # JWT token generation (Ed25519 signing)
 pynacl>=1.5.0
+
+# GRP_TXT channel payload decryption (AES-128-ECB) - see payload_decode.py
+cryptography>=41.0.0
