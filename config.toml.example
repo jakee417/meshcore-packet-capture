@@ -103,6 +103,8 @@ rf_data_timeout = 15.0
 # For method = "token" brokers:
 # audience = "mqtt.example.com"
 # token_ttl = 3600  # Optional: JWT lifetime in seconds (default 86400 = 24h)
+# owner = "64_hex_char_public_key"   # Optional; overrides capture.owner_public_key for this broker
+# email = "you@example.com"          # Optional; overrides capture.owner_email for this broker
 #
 # Optional per-broker topic overrides (take precedence over the global [topics];
 # unset keys fall back to [topics]). Keys: status, packets, decoded, debug, raw.

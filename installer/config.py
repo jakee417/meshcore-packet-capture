@@ -1400,13 +1400,79 @@ def _configure_iata_for_presets(user_toml: str, ctx: InstallerContext) -> None:
         print_success(f"IATA code set to: {iata}")
 
 
+def _user_token_broker_names(config_dir: str | Path) -> list[str]:
+    """Return broker names with token auth defined in the user TOML."""
+    data = _load_user_toml(user_config_path(config_dir))
+    brokers = data.get("broker")
+    if not isinstance(brokers, list):
+        return []
+    names: list[str] = []
+    for broker in brokers:
+        if not isinstance(broker, dict) or not broker.get("name"):
+            continue
+        auth = broker.get("auth") if isinstance(broker.get("auth"), dict) else {}
+        if auth.get("method") == "token":
+            names.append(str(broker["name"]))
+    return names
+
+
+def _shared_metadata_default(metadata: dict[str, tuple[str, str]], idx: int) -> str:
+    """Return the shared existing owner/email value if all brokers agree."""
+    values = {pair[idx] for pair in metadata.values() if pair[idx]}
+    return values.pop() if len(values) == 1 else ""
+
+
+def _apply_owner_overrides_all(
+    user_toml: str,
+    broker_names: list[str],
+    metadata: dict[str, tuple[str, str]],
+) -> None:
+    """Prompt once and apply owner/email to every listed broker."""
+    owner_default = _shared_metadata_default(metadata, 0)
+    email_default = _shared_metadata_default(metadata, 1)
+    owner_pubkey = prompt_owner_pubkey(owner_default)
+    owner_email = prompt_owner_email(email_default)
+    _rewrite_token_owner_overrides_toml(user_toml, broker_names, owner_pubkey, owner_email)
+
+
+def _apply_owner_overrides_per_broker(
+    user_toml: str,
+    broker_names: list[str],
+    metadata: dict[str, tuple[str, str]],
+) -> None:
+    """Prompt separately for each broker's owner/email."""
+    for broker_name in broker_names:
+        owner, email = metadata[broker_name]
+        print()
+        print_header(f"Owner Info: {broker_name}")
+        owner_pubkey = prompt_owner_pubkey(owner)
+        owner_email = prompt_owner_email(email)
+        _rewrite_token_owner_overrides_toml(user_toml, [broker_name], owner_pubkey, owner_email)
+    print_success("Owner info updated per broker")
+
+
+def _prompt_preset_or_broker_scope(*, multiple_presets: bool, multiple_brokers: bool) -> str:
+    """Return ``preset`` or ``broker`` for owner/email configuration scope."""
+    if not multiple_brokers:
+        return "preset"
+    if not multiple_presets:
+        return "broker"
+
+    print()
+    print_info("Configure owner identity:")
+    print("  1) Per preset (same email for all brokers in each preset)")
+    print("  2) Per broker (different email for each broker)")
+    choice = prompt_input("Choose [1-2]", "1")
+    return "broker" if choice == "2" else "preset"
+
+
 def _configure_token_preset_overrides(config_dir: str) -> None:
     """Configure owner/email overrides for token-auth presets.
 
     Owner identity is almost always the same person for every broker, so by
     default we ask once and apply the answer to all token-authenticated brokers.
-    A per-preset path is still offered when the user has more than one preset and
-    wants different identities for each.
+    Per-preset and per-broker paths are offered when the user wants different
+    identities.
     """
     user_toml = str(user_config_path(config_dir))
     presets = token_preset_brokers(config_dir)
@@ -1440,15 +1506,20 @@ def _configure_token_preset_overrides(config_dir: str) -> None:
         return
 
     multiple_presets = len(presets) > 1
-    if not multiple_presets or prompt_yes_no(
+    multiple_brokers = len(all_broker_names) > 1
+    if prompt_yes_no(
         "Use the same owner public key and email for all token-authenticated brokers?", "y"
     ):
-        owner_default = _shared_metadata_default(metadata, 0)
-        email_default = _shared_metadata_default(metadata, 1)
-        owner_pubkey = prompt_owner_pubkey(owner_default)
-        owner_email = prompt_owner_email(email_default)
-        _rewrite_token_owner_overrides_toml(user_toml, all_broker_names, owner_pubkey, owner_email)
+        _apply_owner_overrides_all(user_toml, all_broker_names, metadata)
         print_success("Owner info updated for all token-authenticated brokers")
+        return
+
+    scope = _prompt_preset_or_broker_scope(
+        multiple_presets=multiple_presets,
+        multiple_brokers=multiple_brokers,
+    )
+    if scope == "broker":
+        _apply_owner_overrides_per_broker(user_toml, all_broker_names, metadata)
         return
 
     # Per-preset path: the user wants a different identity per preset.
@@ -1456,18 +1527,38 @@ def _configure_token_preset_overrides(config_dir: str) -> None:
         print()
         print_header(f"Owner Info: {preset_path.name}")
         preset_meta = {name: metadata[name] for name in broker_names}
-        owner_default = _shared_metadata_default(preset_meta, 0)
-        email_default = _shared_metadata_default(preset_meta, 1)
-        owner_pubkey = prompt_owner_pubkey(owner_default)
-        owner_email = prompt_owner_email(email_default)
-        _rewrite_token_owner_overrides_toml(user_toml, broker_names, owner_pubkey, owner_email)
+        _apply_owner_overrides_all(user_toml, broker_names, preset_meta)
         print_success(f"Owner info updated for {preset_path.name}")
 
 
-def _shared_metadata_default(metadata: dict[str, tuple[str, str]], idx: int) -> str:
-    """Return the shared existing owner/email value if all brokers agree."""
-    values = {pair[idx] for pair in metadata.values() if pair[idx]}
-    return values.pop() if len(values) == 1 else ""
+def _configure_user_token_owner_overrides(config_dir: str, broker_names: list[str]) -> None:
+    """Configure owner/email for custom token-auth brokers in the user TOML."""
+    if not broker_names:
+        return
+
+    user_toml = str(user_config_path(config_dir))
+    metadata = {name: _broker_auth_metadata(config_dir, name) for name in broker_names}
+
+    print()
+    print_header("Update Owner Information: Custom Brokers")
+    for broker_name in broker_names:
+        owner, email = metadata[broker_name]
+        print(f"  - {broker_name}")
+        print(f"    owner: {owner or '(not set)'}")
+        print(f"    email: {email or '(not set)'}")
+
+    has_owner_info = any(owner or email for owner, email in metadata.values())
+    if has_owner_info and not prompt_yes_no("Update owner info for custom token-authenticated brokers?", "n"):
+        return
+
+    if len(broker_names) == 1 or prompt_yes_no(
+        "Use the same owner public key and email for all custom token brokers?", "y"
+    ):
+        _apply_owner_overrides_all(user_toml, broker_names, metadata)
+        print_success("Owner info updated for custom token brokers")
+        return
+
+    _apply_owner_overrides_per_broker(user_toml, broker_names, metadata)
 
 
 def _print_configured_presets(config_dir: str) -> None:
@@ -1583,71 +1674,28 @@ def _config_dir_has_broker(config_dir: str) -> bool:
 
 def update_owner_info(config_dir: str) -> None:
     """Update owner public key and email for existing token-auth brokers."""
-    user_toml = str(migrate_user_config_filename(config_dir))
+    user_toml_path = migrate_user_config_filename(config_dir)
 
-    if not Path(user_toml).exists():
+    if not user_toml_path.exists():
         print_error("No configuration file found")
         return
 
     print()
     print_header("Update Owner Information")
 
-    content = Path(user_toml).read_text()
-    has_token_presets = bool(token_preset_brokers(config_dir))
-    if 'method = "token"' not in content and not has_token_presets:
-        print_warning("No brokers configured with auth token authentication")
-        return
-
-    if has_token_presets:
-        _configure_token_preset_overrides(config_dir)
+    presets = token_preset_brokers(config_dir)
+    user_token_brokers = _user_token_broker_names(config_dir)
+    if not presets and not user_token_brokers:
+        content = user_toml_path.read_text()
         if 'method = "token"' not in content:
+            print_warning("No brokers configured with auth token authentication")
             return
 
-    print_info("This will update owner and email for all token-auth brokers")
-    print()
+    if presets:
+        _configure_token_preset_overrides(config_dir)
 
-    # Extract existing owner and email
-    existing_owner = ""
-    existing_email = ""
-    owner_match = re.search(r'^owner\s*=\s*"([^"]*)"', content, re.MULTILINE)
-    if owner_match:
-        existing_owner = owner_match.group(1)
-    email_match = re.search(r'^email\s*=\s*"([^"]*)"', content, re.MULTILINE)
-    if email_match:
-        existing_email = email_match.group(1)
-
-    if existing_owner:
-        print_info(f"Current owner: {existing_owner}")
-    if existing_email:
-        print_info(f"Current email: {existing_email}")
-
-    new_owner = prompt_owner_pubkey(existing_owner)
-    new_email = prompt_owner_email(existing_email)
-
-    # Back up config
-    import shutil
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(user_toml, f"{user_toml}.backup-{timestamp}")
-
-    # Update owner and email
-    if new_owner:
-        content = re.sub(r'^(owner\s*=\s*).*$', f'\\1"{new_owner}"', content, flags=re.MULTILINE)
-    if new_email:
-        content = re.sub(r'^(email\s*=\s*).*$', f'\\1"{new_email}"', content, flags=re.MULTILINE)
-    Path(user_toml).write_text(content)
-
-    # Summary
-    changes = []
-    if new_owner:
-        changes.append(f"owner: {new_owner}")
-    if new_email:
-        changes.append(f"email: {new_email}")
-
-    if changes:
-        print_success(f"Updated configuration: {', '.join(changes)}")
-    else:
-        print_success("No changes made")
+    if user_token_brokers:
+        _configure_user_token_owner_overrides(config_dir, user_token_brokers)
 
 
 # ---------------------------------------------------------------------------

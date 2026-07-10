@@ -323,6 +323,26 @@ PACKETCAPTURE_PRIVATE_KEY_FILE=/path/to/private_key_file
 ```
 **Note**: Auth token authentication requires the device's private key.
 
+Optional owner identification links your observer to your MeshCore account in
+broker dashboards. Set a global default under `[capture]` or override per broker:
+
+```toml
+[capture]
+owner_public_key = "64_hex_char_public_key"
+owner_email = "you@example.com"
+
+[[broker]]
+name = "meshmapper"
+
+[broker.auth]
+method = "token"
+email = "meshmapper-alias@example.com"   # overrides capture.owner_email for this broker
+```
+
+Environment equivalents: `PACKETCAPTURE_OWNER_EMAIL` (global fallback) and
+`PACKETCAPTURE_MQTT<n>_TOKEN_EMAIL` / `PACKETCAPTURE_MQTT<n>_TOKEN_OWNER`
+(per-broker overrides).
+
 **Transport Options:**
 - `tcp`: Standard TCP connection
 - `websockets`: WebSocket connection (useful for web applications)
