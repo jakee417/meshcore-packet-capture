@@ -597,14 +597,6 @@ Supported commands:
 
 - `send_msg` with `destination`, `message`
 - `send_chan_msg` with `channel`, `message`
-- `device_query`
-- `get_battery`
-- `set_name` with `name`
-- `send_advert` (optional `flood`)
-- `send_trace` (optional `auth_code`, `tag`, `flags`, `path`)
-- `send_telemetry_req` with `destination` (optional `password`)
-- `send_login` with `destination`, `password`
-- `send_logoff` with `destination`
 
 ## Troubleshooting
 
