@@ -2255,12 +2255,16 @@ class PacketCapture:
             if not message or not isinstance(message, str):
                 self.logger.warning("send_msg requires string 'message'")
                 return
-            sent = await _run_command(
-                'send_msg',
-                lambda: self.meshcore.commands.send_msg(destination, message),
-            )
-            if sent:
+
+            async def _send_msg_command():
+                result = await self.meshcore.commands.send_msg(destination, message)
                 self.logger.info(f"📤 Sent direct message (to={destination}): {message}")
+                return result
+
+            await _run_command(
+                'send_msg',
+                _send_msg_command,
+            )
             return
 
         if command == 'send_chan_msg':
