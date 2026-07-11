@@ -75,8 +75,8 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-WorkingDirectory="$REPO_DIR"
-ExecStart="$REPO_DIR/.venv/bin/python" -m meshcore_packet_capture
+WorkingDirectory=$REPO_DIR
+ExecStart=$REPO_DIR/.venv/bin/python -m meshcore_packet_capture
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=10
