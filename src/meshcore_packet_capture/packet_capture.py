@@ -936,9 +936,6 @@ class PacketCapture:
         """Get topic with template resolution, checking broker-specific override first"""
         topic_type_upper = topic_type.upper()
 
-        def _topic_is_disabled(value: str) -> bool:
-            return value.strip().lower() in {'', 'off', 'none', 'disabled', 'false', '0'}
-
         def _get_topic_env_raw(env_key: str) -> Optional[str]:
             full_key = f"PACKETCAPTURE_{env_key}"
             return os.getenv(full_key)
@@ -947,21 +944,11 @@ class PacketCapture:
         if broker_num:
             broker_topic_raw = _get_topic_env_raw(f'MQTT{broker_num}_TOPIC_{topic_type_upper}')
             if broker_topic_raw is not None:
-                if _topic_is_disabled(broker_topic_raw):
-                    if self.debug:
-                        self.logger.debug(
-                            f"Topic {topic_type_upper} disabled for broker {broker_num}"
-                        )
-                    return None
                 return self.resolve_topic_template(broker_topic_raw, broker_num)
         
         # Fall back to global topic
         global_topic_raw = _get_topic_env_raw(f'TOPIC_{topic_type_upper}')
         if global_topic_raw is not None:
-            if _topic_is_disabled(global_topic_raw):
-                if self.debug:
-                    self.logger.debug(f"Global topic {topic_type_upper} explicitly disabled")
-                return None
             return self.resolve_topic_template(global_topic_raw, broker_num)
         
         # For RAW topic, don't provide a default - only publish if explicitly configured

@@ -81,20 +81,6 @@ def test_resolve_topic_template_replaces_token_placeholder(monkeypatch: pytest.M
     assert topic == "meshrank/uplink/tok123/ABCDEF/packets"
 
 
-def test_get_topic_broker_can_disable_decoded(
-    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
-) -> None:
-    monkeypatch.setenv("PACKETCAPTURE_MQTT1_TOPIC_DECODED", "off")
-    assert capture.get_topic("decoded", broker_num=1) is None
-
-
-def test_get_topic_global_disable_blocks_default(
-    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
-) -> None:
-    monkeypatch.setenv("PACKETCAPTURE_TOPIC_DECODED", "disabled")
-    assert capture.get_topic("decoded", broker_num=2) is None
-
-
 def test_get_topic_command_default(capture: PacketCapture) -> None:
     assert capture.get_topic("command", broker_num=1) == "meshcore/command/+"
 
