@@ -202,6 +202,8 @@ async def test_handle_decoded_message_event_publishes_decoded_payload(
 
     def _get_topic(topic_type, broker_num=None):
         assert broker_num == 1
+        if topic_type == "decoded":
+            return "meshcore/private/ABC123/decoded"
         if topic_type == "direct":
             return "meshcore/private/ABC123/direct"
         if topic_type == "channel":
@@ -229,7 +231,8 @@ async def test_handle_decoded_message_event_publishes_decoded_payload(
     await capture.handle_decoded_message_event(event)
 
     assert published
-    assert published[0][0] == "meshcore/private/ABC123/direct"
+    assert published[0][0] == "meshcore/private/ABC123/decoded"
+    assert published[1][0] == "meshcore/private/ABC123/direct"
     assert published[0][2] is client_obj
     assert published[0][3] == 1
     payload_json = json.loads(published[0][1])
@@ -395,6 +398,8 @@ async def test_handle_decoded_message_event_routes_direct_topic_per_broker(
 
     def _get_topic(topic_type, broker_num=None):
         assert broker_num == 1
+        if topic_type == "decoded":
+            return "meshcore/private/ABC123/decoded"
         if topic_type == "direct":
             return "meshcore/private/ABC123/direct"
         if topic_type == "channel":
@@ -422,7 +427,8 @@ async def test_handle_decoded_message_event_routes_direct_topic_per_broker(
     await capture.handle_decoded_message_event(event)
 
     assert published
-    assert published[0][0] == "meshcore/private/ABC123/direct"
+    assert published[0][0] == "meshcore/private/ABC123/decoded"
+    assert published[1][0] == "meshcore/private/ABC123/direct"
     assert published[0][2] is client_obj
     assert published[0][3] == 1
 
@@ -439,6 +445,8 @@ async def test_handle_decoded_message_event_routes_channel_topic_per_broker(
 
     def _get_topic(topic_type, broker_num=None):
         assert broker_num == 1
+        if topic_type == "decoded":
+            return "meshcore/private/ABC123/decoded"
         if topic_type == "direct":
             return "meshcore/private/ABC123/direct"
         if topic_type == "channel":
@@ -466,7 +474,8 @@ async def test_handle_decoded_message_event_routes_channel_topic_per_broker(
     await capture.handle_decoded_message_event(event)
 
     assert published
-    assert published[0][0] == "meshcore/private/ABC123/channel/3"
+    assert published[0][0] == "meshcore/private/ABC123/decoded"
+    assert published[1][0] == "meshcore/private/ABC123/channel/3"
 
 
 @pytest.mark.asyncio

@@ -3620,11 +3620,19 @@ class PacketCapture:
                     for mqtt_client_info in self.mqtt_clients:
                         broker_num = mqtt_client_info['broker_num']
                         mqtt_client = mqtt_client_info['client']
+                        decoded_topic = self.get_topic('decoded', broker_num)
                         message_topic = self._resolve_message_direction_topic(
                             broker_num=broker_num,
                             direction=direction,
                             channel_idx=message_data.get('channel_idx'),
                         )
+                        if decoded_topic:
+                            self.safe_publish(
+                                decoded_topic,
+                                payload_json,
+                                client=mqtt_client,
+                                broker_num=broker_num,
+                            )
                         if message_topic:
                             self.safe_publish(
                                 message_topic,
