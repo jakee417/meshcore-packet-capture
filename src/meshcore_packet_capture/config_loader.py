@@ -216,6 +216,7 @@ def flatten_config_to_env_dict(config: dict[str, Any]) -> dict[str, str]:
         "ble_device": "BLE_DEVICE",
         "ble_device_name": "BLE_DEVICE_NAME",
         "ble_name": "BLE_NAME",
+        "ble_pin": "BLE_PIN",
         "origin": "ORIGIN",
         "origin_id": "ORIGIN_ID",
         "private_key": "PRIVATE_KEY",
