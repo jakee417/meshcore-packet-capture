@@ -325,7 +325,7 @@ status  = "meshcore/{IATA}/{PUBLIC_KEY}/status"
 ```
 These flatten to `PACKETCAPTURE_MQTT<n>_TOPIC_<NAME>` (per broker) and
 `PACKETCAPTURE_TOPIC_<NAME>` (global fallback) — supported names: `STATUS`,
-`PACKETS`, `DIRECT`, `CHANNEL`, `DEBUG`, `RAW`, `COMMAND`.
+`PACKETS`, `DECODED`, `DIRECT`, `CHANNEL`, `DEBUG`, `RAW`, `COMMAND`.
 
 To explicitly disable a topic for a broker (or globally), set it to one of:
 `off`, `none`, `disabled`, `false`, `0`, or an empty string.
@@ -339,6 +339,7 @@ enabled = true
 server = "mqtt.waev.app"
 
 [broker.topics]
+decoded = "off"
 direct = "off"
 channel = "off"
 
@@ -349,6 +350,7 @@ server = "127.0.0.1"
 port = 1883
 
 [broker.topics]
+decoded = "meshcore/private/{PUBLIC_KEY}/decoded"
 direct = "meshcore/private/{PUBLIC_KEY}/direct"
 channel = "meshcore/private/{PUBLIC_KEY}/channel/{CHANNEL}"
 ```
@@ -602,6 +604,7 @@ Default topic templates (from the shipped `config.toml`):
 
 - `meshcore/{IATA}/{PUBLIC_KEY}/status`: Device online/offline status (plus optional stats)
 - `meshcore/{IATA}/{PUBLIC_KEY}/packets`: Full packet data
+- `meshcore/{IATA}/{PUBLIC_KEY}/decoded`: Decoded message compatibility topic
 - `meshcore/{IATA}/{PUBLIC_KEY}/direct`: Decoded direct message events
 - `meshcore/{IATA}/{PUBLIC_KEY}/channel/{CHANNEL}`: Decoded channel message events
 - `meshcore/{IATA}/{PUBLIC_KEY}/raw`: Raw packet data (commented out by default; enable it for e.g. map.w0z.is)
@@ -643,14 +646,6 @@ mosquitto_pub -h 127.0.0.1 \
 mosquitto_pub -h 127.0.0.1 \
   -t "meshcore/LOC/MYDEVICEPUBKEY/command/send_chan_msg" \
   -m '{"channel":0,"message":"hello channel"}'
-```
-
-To disable command ingestion on a public broker, set per-broker command topic to
-`off` (or `none`/`disabled`):
-
-```toml
-[broker.topics]
-command = "off"
 ```
 
 ## Troubleshooting
