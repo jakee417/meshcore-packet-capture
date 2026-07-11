@@ -955,9 +955,9 @@ class PacketCapture:
         if global_topic_raw is not None:
             return self.resolve_topic_template(global_topic_raw, broker_num)
         
-        # For RAW/DIRECT/CHANNEL/COMMAND topics, don't provide defaults.
+        # For RAW/DECODED/DIRECT/CHANNEL/COMMAND topics, don't provide defaults.
         # These are only active when explicitly configured.
-        if topic_type_upper in {'RAW', 'DIRECT', 'CHANNEL', 'COMMAND'}:
+        if topic_type_upper in {'RAW', 'DECODED', 'DIRECT', 'CHANNEL', 'COMMAND'}:
             if self.debug:
                 self.logger.debug(
                     f"No {topic_type_upper} topic configured for broker {broker_num}, skipping"
@@ -975,13 +975,11 @@ class PacketCapture:
         iata_defaults = {
             'STATUS': 'meshcore/{IATA}/{PUBLIC_KEY}/status',
             'PACKETS': 'meshcore/{IATA}/{PUBLIC_KEY}/packets',
-            'DECODED': 'meshcore/{IATA}/{PUBLIC_KEY}/decoded',
             'DEBUG': 'meshcore/{IATA}/{PUBLIC_KEY}/debug',
         }
         classic_defaults = {
             'STATUS': 'meshcore/status',
             'PACKETS': 'meshcore/packets',
-            'DECODED': 'meshcore/decoded',
             'DEBUG': 'meshcore/debug',
         }
 

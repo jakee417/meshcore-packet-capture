@@ -85,6 +85,10 @@ def test_get_topic_command_requires_explicit_config(capture: PacketCapture) -> N
     assert capture.get_topic("command", broker_num=1) is None
 
 
+def test_get_topic_decoded_requires_explicit_config(capture: PacketCapture) -> None:
+    assert capture.get_topic("decoded", broker_num=1) is None
+
+
 @pytest.mark.asyncio
 async def test_refresh_stats_fetches_packet_stats(monkeypatch: pytest.MonkeyPatch, capture: PacketCapture) -> None:
     event_type = types.SimpleNamespace(
