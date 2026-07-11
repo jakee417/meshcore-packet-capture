@@ -111,30 +111,6 @@ manual runs, development, or when you manage the process yourself. To run it as 
 managed background service, use the bootstrap installer (see [Quick Start](#quick-start)
 and [Managed-service installer](#managed-service-installer-linux-and-macos) below).
 
-### User systemd service from local checkout (Linux)
-
-If you are deploying from a local folder and want a per-user service (no root
-system unit), use:
-
-```bash
-./user_install.sh
-```
-
-This script creates/updates `.venv`, installs the package from your checkout,
-creates `~/.config/systemd/user/meshcore-packet-capture.service`, then enables
-and starts it.
-
-To remove the user service:
-
-```bash
-./user_uninstall.sh
-```
-
-Optional flags:
-
-- `./user_install.sh --help`
-- `./user_uninstall.sh --help`
-
 ### Docker Installation
 
 The project includes Docker support for easy deployment:
