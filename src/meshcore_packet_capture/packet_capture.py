@@ -951,10 +951,13 @@ class PacketCapture:
         if global_topic_raw is not None:
             return self.resolve_topic_template(global_topic_raw, broker_num)
         
-        # For RAW topic, don't provide a default - only publish if explicitly configured
-        if topic_type_upper == 'RAW':
+        # For RAW/DIRECT/CHANNEL/COMMAND topics, don't provide defaults.
+        # These are only active when explicitly configured.
+        if topic_type_upper in {'RAW', 'DIRECT', 'CHANNEL', 'COMMAND'}:
             if self.debug:
-                self.logger.debug(f"No RAW topic configured for broker {broker_num}, skipping RAW publish")
+                self.logger.debug(
+                    f"No {topic_type_upper} topic configured for broker {broker_num}, skipping"
+                )
             return None
         
         # Defaulting policy adjustment:
@@ -969,19 +972,13 @@ class PacketCapture:
             'STATUS': 'meshcore/{IATA}/{PUBLIC_KEY}/status',
             'PACKETS': 'meshcore/{IATA}/{PUBLIC_KEY}/packets',
             'DECODED': 'meshcore/{IATA}/{PUBLIC_KEY}/decoded',
-            'DIRECT': 'meshcore/{IATA}/{PUBLIC_KEY}/direct',
-            'CHANNEL': 'meshcore/{IATA}/{PUBLIC_KEY}/channel/{CHANNEL}',
             'DEBUG': 'meshcore/{IATA}/{PUBLIC_KEY}/debug',
-            'COMMAND': 'meshcore/{IATA}/{PUBLIC_KEY}/command/+'
         }
         classic_defaults = {
             'STATUS': 'meshcore/status',
             'PACKETS': 'meshcore/packets',
             'DECODED': 'meshcore/decoded',
-            'DIRECT': 'meshcore/direct',
-            'CHANNEL': 'meshcore/channel/{CHANNEL}',
             'DEBUG': 'meshcore/debug',
-            'COMMAND': 'meshcore/command/+'
         }
 
         if iata_configured:

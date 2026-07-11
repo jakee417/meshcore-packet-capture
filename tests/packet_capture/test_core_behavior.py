@@ -81,8 +81,8 @@ def test_resolve_topic_template_replaces_token_placeholder(monkeypatch: pytest.M
     assert topic == "meshrank/uplink/tok123/ABCDEF/packets"
 
 
-def test_get_topic_command_default(capture: PacketCapture) -> None:
-    assert capture.get_topic("command", broker_num=1) == "meshcore/command/+"
+def test_get_topic_command_requires_explicit_config(capture: PacketCapture) -> None:
+    assert capture.get_topic("command", broker_num=1) is None
 
 
 @pytest.mark.asyncio
