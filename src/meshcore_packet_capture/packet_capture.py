@@ -2222,9 +2222,12 @@ class PacketCapture:
         if not self._ensure_connected(f"mqtt command '{command}'", "warning"):
             return
 
-        self.logger.info(f"Processing MQTT command '{command}' from {broker_label}")
-
-        async def _run_command(command_name: str, command_func, timeout: float = 10.0) -> bool:
+        async def _run_command(
+            command_name: str,
+            command_func,
+            timeout: float = 10.0,
+            on_success=None,
+        ) -> bool:
             retries = self.default_retry_limit
             result = await self.retryable_device_command(
                 command_func,
@@ -2243,7 +2246,12 @@ class PacketCapture:
                     f"MQTT command '{command_name}' failed on {broker_label}: {result.payload}"
                 )
                 return False
-            self.logger.info(f"MQTT command '{command_name}' succeeded on {broker_label}")
+            if on_success is not None:
+                success_message = on_success(result)
+                if success_message:
+                    self.logger.info(success_message)
+            else:
+                self.logger.info(f"MQTT command '{command_name}' succeeded on {broker_label}")
             return True
 
         if command == 'send_msg':
@@ -2258,12 +2266,12 @@ class PacketCapture:
 
             async def _send_msg_command():
                 result = await self.meshcore.commands.send_msg(destination, message)
-                self.logger.info(f"📤 Sent direct message (to={destination}): {message}")
                 return result
 
             await _run_command(
                 'send_msg',
                 _send_msg_command,
+                on_success=lambda result: f"📤 Sent direct message (to={destination}): {message}",
             )
             return
 
@@ -2281,12 +2289,11 @@ class PacketCapture:
             if not message or not isinstance(message, str):
                 self.logger.warning("send_chan_msg requires string 'message'")
                 return
-            sent = await _run_command(
+            await _run_command(
                 'send_chan_msg',
                 lambda: self.meshcore.commands.send_chan_msg(channel_idx, message),
+                on_success=lambda result: f"📤 Sent channel message (channel={channel_idx}): {message}",
             )
-            if sent:
-                self.logger.info(f"📤 Sent channel message (channel={channel_idx}): {message}")
             return
 
         if command == 'device_query':
