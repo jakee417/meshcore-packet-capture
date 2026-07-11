@@ -227,6 +227,133 @@ async def test_handle_decoded_message_event_publishes_decoded_payload(
 
 
 @pytest.mark.asyncio
+async def test_handle_decoded_message_event_includes_payload_signal(
+    capture: PacketCapture,
+) -> None:
+    published: list[tuple[str | None, str, str | None]] = []
+
+    capture.enable_mqtt = True
+    capture.mqtt_connected = True
+
+    def _publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs.get("topic_type")))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.safe_publish = _publish
+
+    event = types.SimpleNamespace(
+        type="CONTACT_MSG_RECV",
+        payload={
+            "type": "PRIV",
+            "text": "hello world",
+            "from": "node-a",
+            "pubkey_prefix": "a1b2c3",
+            "msg_id": "msg-1",
+            "snr": 12.5,
+            "rssi": -87,
+        },
+    )
+
+    await capture.handle_decoded_message_event(event)
+
+    payload_json = json.loads(published[0][1])
+    assert payload_json["snr"] == 12.5
+    assert payload_json["rssi"] == -87.0
+
+
+@pytest.mark.asyncio
+async def test_handle_decoded_message_event_falls_back_to_recent_rf_signal(
+    capture: PacketCapture,
+) -> None:
+    published: list[tuple[str | None, str, str | None]] = []
+
+    capture.enable_mqtt = True
+    capture.mqtt_connected = True
+    capture.rf_data_cache = {
+        "old": {"snr": 1.0, "rssi": -100, "timestamp": 1.0},
+        "recent": {"snr": 7.25, "rssi": -72, "timestamp": 10.0},
+    }
+
+    def _publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs.get("topic_type")))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.safe_publish = _publish
+
+    event = types.SimpleNamespace(
+        type="CONTACT_MSG_RECV",
+        payload={
+            "type": "PRIV",
+            "text": "hello world",
+            "from": "node-a",
+            "pubkey_prefix": "a1b2c3",
+            "msg_id": "msg-1",
+        },
+    )
+
+    original_time = pc_mod.time.time
+    try:
+        pc_mod.time.time = lambda: 12.0
+        await capture.handle_decoded_message_event(event)
+    finally:
+        pc_mod.time.time = original_time
+
+    payload_json = json.loads(published[0][1])
+    assert payload_json["snr"] == 7.25
+    assert payload_json["rssi"] == -72.0
+
+
+@pytest.mark.asyncio
+async def test_handle_decoded_message_event_prefers_correlation_key_signal(
+    capture: PacketCapture,
+) -> None:
+    published: list[tuple[str | None, str, str | None]] = []
+
+    capture.enable_mqtt = True
+    capture.mqtt_connected = True
+    # Recency fallback has different values, but exact-key cache should win.
+    capture.rf_data_cache = {
+        "recent": {"snr": 9.9, "rssi": -66, "timestamp": 50.0},
+    }
+
+    event = types.SimpleNamespace(
+        type="CONTACT_MSG_RECV",
+        payload={
+            "type": "PRIV",
+            "text": "hello world",
+            "from": "node-a",
+            "pubkey_prefix": "a1b2c3",
+            "msg_id": "msg-1",
+        },
+    )
+
+    corr_key = capture._build_message_correlation_key(event.payload, "CONTACT_MSG_RECV")
+    assert corr_key is not None
+    capture.message_signal_cache[corr_key] = {
+        "snr": 3.14,
+        "rssi": -91,
+        "timestamp": 50.0,
+    }
+
+    def _publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs.get("topic_type")))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.safe_publish = _publish
+
+    original_time = pc_mod.time.time
+    try:
+        pc_mod.time.time = lambda: 55.0
+        await capture.handle_decoded_message_event(event)
+    finally:
+        pc_mod.time.time = original_time
+
+    payload_json = json.loads(published[0][1])
+    assert payload_json["snr"] == 3.14
+    assert payload_json["rssi"] == -91.0
+
+
+@pytest.mark.asyncio
 async def test_setup_event_handlers_subscribes_message_events(
     monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
 ) -> None:
