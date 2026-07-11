@@ -351,6 +351,17 @@ port = 1883
 decoded = "meshcore/private/{PUBLIC_KEY}/decoded"
 ```
 
+For decoded message events, the configured `decoded` topic is treated as a base.
+The bridge publishes to direction-specific topics derived from that base:
+
+- direct messages: `{decoded_base_without_/decoded}/direct`
+- channel messages: `{decoded_base_without_/decoded}/channel/{CHANNEL}`
+
+So a decoded base of `meshcore/private/{PUBLIC_KEY}/decoded` publishes to:
+
+- `meshcore/private/{PUBLIC_KEY}/direct`
+- `meshcore/private/{PUBLIC_KEY}/channel/{CHANNEL}`
+
 #### Authentication Methods
 
 **Username/Password Authentication:**
@@ -600,6 +611,9 @@ Default topic templates (from the shipped `config.toml`):
 
 - `meshcore/{IATA}/{PUBLIC_KEY}/status`: Device online/offline status (plus optional stats)
 - `meshcore/{IATA}/{PUBLIC_KEY}/packets`: Full packet data
+- `meshcore/{IATA}/{PUBLIC_KEY}/decoded` (base): Decoded message base topic
+  - direct decoded messages publish to `meshcore/{IATA}/{PUBLIC_KEY}/direct`
+  - channel decoded messages publish to `meshcore/{IATA}/{PUBLIC_KEY}/channel/{CHANNEL}`
 - `meshcore/{IATA}/{PUBLIC_KEY}/raw`: Raw packet data (commented out by default; enable it for e.g. map.w0z.is)
 - `meshcore/{IATA}/{PUBLIC_KEY}/command/+`: Inbound command topic (subscribe)
 

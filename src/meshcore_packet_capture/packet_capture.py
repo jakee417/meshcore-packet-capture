@@ -3611,10 +3611,53 @@ class PacketCapture:
                 )
 
             if self.enable_mqtt:
-                self.safe_publish(None, json.dumps(message_data), topic_type='decoded')
+                payload_json = json.dumps(message_data)
+                if self.mqtt_clients:
+                    for mqtt_client_info in self.mqtt_clients:
+                        broker_num = mqtt_client_info['broker_num']
+                        mqtt_client = mqtt_client_info['client']
+                        decoded_topic = self._resolve_decoded_direction_topic(
+                            broker_num=broker_num,
+                            direction=direction,
+                            channel_idx=message_data.get('channel_idx'),
+                        )
+                        if decoded_topic:
+                            self.safe_publish(
+                                decoded_topic,
+                                payload_json,
+                                client=mqtt_client,
+                                broker_num=broker_num,
+                            )
+                else:
+                    # Fallback for tests/manual invocations without configured clients.
+                    self.safe_publish(None, payload_json, topic_type='decoded')
 
         except Exception as e:
             self.logger.error(f"Error handling decoded message event: {e}")
+
+    def _resolve_decoded_direction_topic(
+        self,
+        broker_num: int,
+        direction: str,
+        channel_idx: Any,
+    ) -> Optional[str]:
+        """Resolve direct/channel decoded topics from the broker decoded base topic."""
+        decoded_base = self.get_topic('decoded', broker_num)
+        if not decoded_base:
+            return None
+
+        base = decoded_base.rstrip('/')
+        if base.endswith('/decoded'):
+            base = base[: -len('/decoded')]
+
+        if direction == 'channel':
+            try:
+                channel_value = int(channel_idx)
+            except (TypeError, ValueError):
+                channel_value = 0
+            return f"{base}/channel/{channel_value}"
+
+        return f"{base}/direct"
 
     @staticmethod
     def _coerce_signal_value(value: Any) -> Optional[float]:

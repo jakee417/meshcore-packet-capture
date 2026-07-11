@@ -343,6 +343,87 @@ async def test_handle_decoded_message_event_reads_metadata_signal(
 
 
 @pytest.mark.asyncio
+async def test_handle_decoded_message_event_routes_direct_topic_per_broker(
+    capture: PacketCapture,
+) -> None:
+    published: list[tuple[str | None, str, object | None, int | None]] = []
+
+    capture.enable_mqtt = True
+    capture.mqtt_connected = True
+    client_obj = object()
+    capture.mqtt_clients = [{"client": client_obj, "broker_num": 1, "label": "mqtt1"}]
+
+    def _get_topic(topic_type, broker_num=None):
+        assert topic_type == "decoded"
+        assert broker_num == 1
+        return "meshcore/private/ABC123/decoded"
+
+    def _publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs.get("client"), kwargs.get("broker_num")))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.get_topic = _get_topic  # type: ignore[method-assign]
+    capture.safe_publish = _publish  # type: ignore[method-assign]
+
+    event = types.SimpleNamespace(
+        type="CONTACT_MSG_RECV",
+        payload={
+            "type": "PRIV",
+            "text": "hello world",
+            "from": "node-a",
+            "pubkey_prefix": "a1b2c3",
+            "msg_id": "msg-1",
+        },
+    )
+
+    await capture.handle_decoded_message_event(event)
+
+    assert published
+    assert published[0][0] == "meshcore/private/ABC123/direct"
+    assert published[0][2] is client_obj
+    assert published[0][3] == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_decoded_message_event_routes_channel_topic_per_broker(
+    capture: PacketCapture,
+) -> None:
+    published: list[tuple[str | None, str]] = []
+
+    capture.enable_mqtt = True
+    capture.mqtt_connected = True
+    capture.mqtt_clients = [{"client": object(), "broker_num": 1, "label": "mqtt1"}]
+
+    def _get_topic(topic_type, broker_num=None):
+        assert topic_type == "decoded"
+        assert broker_num == 1
+        return "meshcore/private/ABC123/decoded"
+
+    def _publish(topic, payload, **_kwargs):
+        published.append((topic, payload))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.get_topic = _get_topic  # type: ignore[method-assign]
+    capture.safe_publish = _publish  # type: ignore[method-assign]
+
+    event = types.SimpleNamespace(
+        type="CHANNEL_MSG_RECV",
+        payload={
+            "type": "CHAN",
+            "text": "hello channel",
+            "from": "node-a",
+            "channel_idx": 3,
+            "msg_id": "msg-2",
+        },
+    )
+
+    await capture.handle_decoded_message_event(event)
+
+    assert published
+    assert published[0][0] == "meshcore/private/ABC123/channel/3"
+
+
+@pytest.mark.asyncio
 async def test_setup_event_handlers_subscribes_message_events(
     monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
 ) -> None:
