@@ -91,11 +91,6 @@ rf_data_timeout = 15.0
 #
 # Optional per-broker topic overrides (take precedence over the global [topics];
 # unset keys fall back to [topics]). Keys: status, packets, decoded, direct, channel, debug, raw, command.
-# Set a topic key to "off" (or "none"/"disabled") to disable publishing that
-# topic for this broker.
 # [broker.topics]
 # packets = "custom/{IATA}/{PUBLIC_KEY}/packets"
-# decoded = "off"
-# direct = "off"
-# channel = "off"
-# command = "off"
+

@@ -327,34 +327,6 @@ These flatten to `PACKETCAPTURE_MQTT<n>_TOPIC_<NAME>` (per broker) and
 `PACKETCAPTURE_TOPIC_<NAME>` (global fallback) — supported names: `STATUS`,
 `PACKETS`, `DECODED`, `DIRECT`, `CHANNEL`, `DEBUG`, `RAW`, `COMMAND`.
 
-To explicitly disable a topic for a broker (or globally), set it to one of:
-`off`, `none`, `disabled`, `false`, `0`, or an empty string.
-
-Example: keep decoded message events (direct + channel) off a public broker while enabling
-them on a local broker:
-```toml
-[[broker]]
-name = "waev"
-enabled = true
-server = "mqtt.waev.app"
-
-[broker.topics]
-decoded = "off"
-direct = "off"
-channel = "off"
-
-[[broker]]
-name = "local"
-enabled = true
-server = "127.0.0.1"
-port = 1883
-
-[broker.topics]
-decoded = "meshcore/private/{PUBLIC_KEY}/decoded"
-direct = "meshcore/private/{PUBLIC_KEY}/direct"
-channel = "meshcore/private/{PUBLIC_KEY}/channel/{CHANNEL}"
-```
-
 #### Authentication Methods
 
 **Username/Password Authentication:**
@@ -633,20 +605,6 @@ Supported commands:
 - `send_telemetry_req` with `destination` (optional `password`)
 - `send_login` with `destination`, `password`
 - `send_logoff` with `destination`
-
-Examples:
-
-```bash
-# Direct message to a node id / contact name
-mosquitto_pub -h 127.0.0.1 \
-  -t "meshcore/LOC/MYDEVICEPUBKEY/command/send_msg" \
-  -m '{"destination":"cccccdbvtubkcjdjueurlflrfkcgirjlufjrdjjugldg","message":"hello from mqtt"}'
-
-# Channel message
-mosquitto_pub -h 127.0.0.1 \
-  -t "meshcore/LOC/MYDEVICEPUBKEY/command/send_chan_msg" \
-  -m '{"channel":0,"message":"hello channel"}'
-```
 
 ## Troubleshooting
 
