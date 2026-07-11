@@ -7,6 +7,8 @@ import types
 
 import pytest
 
+from meshcore_packet_capture.packet_capture import PacketCapture
+
 
 def _install_dependency_stubs() -> None:
     if "meshcore" not in sys.modules:
@@ -34,3 +36,8 @@ def isolate_packetcapture_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith("PACKETCAPTURE_") or key == "MESHCORE_PACKETCAPTURE_ENV_DIR":
             monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture
+def capture() -> PacketCapture:
+    return PacketCapture(enable_mqtt=False)
