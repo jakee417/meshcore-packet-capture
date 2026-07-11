@@ -3702,7 +3702,6 @@ class PacketCapture:
         1) Top-level payload values (`snr`/`rssi`, case-insensitive)
         2) Nested payload metadata (`metadata.signal` and `attributes`)
         3) Correlation-key signal cache within RF_DATA_TIMEOUT
-        4) Most recent RF cache entry within RF_DATA_TIMEOUT
         """
         snr, rssi = self._extract_signal_from_mapping(payload)
 
@@ -3746,24 +3745,6 @@ class PacketCapture:
                     rssi = exact_rssi
                 if snr is not None and rssi is not None:
                     return snr, rssi
-
-        if self.rf_data_cache:
-            recent_entries = [
-                entry
-                for entry in self.rf_data_cache.values()
-                if isinstance(entry, dict)
-                and isinstance(entry.get('timestamp'), (int, float))
-                and (current_time - float(entry['timestamp'])) < timeout
-            ]
-
-            if recent_entries:
-                latest = max(recent_entries, key=lambda item: float(item.get('timestamp', 0.0)))
-                latest_snr = self._coerce_signal_value(latest.get('snr'))
-                latest_rssi = self._coerce_signal_value(latest.get('rssi'))
-                if snr is None:
-                    snr = latest_snr
-                if rssi is None:
-                    rssi = latest_rssi
 
         return snr, rssi
 

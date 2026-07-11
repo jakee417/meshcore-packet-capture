@@ -262,7 +262,7 @@ async def test_handle_decoded_message_event_includes_payload_signal(
 
 
 @pytest.mark.asyncio
-async def test_handle_decoded_message_event_falls_back_to_recent_rf_signal(
+async def test_handle_decoded_message_event_does_not_use_recency_fallback_in_strict_mode(
     capture: PacketCapture,
 ) -> None:
     published: list[tuple[str | None, str, str | None]] = []
@@ -299,8 +299,8 @@ async def test_handle_decoded_message_event_falls_back_to_recent_rf_signal(
         pc_mod.time.time = original_time
 
     payload_json = json.loads(published[0][1])
-    assert payload_json["snr"] == 7.25
-    assert payload_json["rssi"] == -72.0
+    assert "snr" not in payload_json
+    assert "rssi" not in payload_json
 
 
 @pytest.mark.asyncio
