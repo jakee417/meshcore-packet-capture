@@ -59,6 +59,15 @@ if [ "$USER_SERVICE" = true ]; then
         echo "Creating venv: $REPO_DIR/.venv"
         python3 -m venv "$REPO_DIR/.venv"
     fi
+    CONFIG_ARGS=()
+    if [ -f "$REPO_DIR/config.toml" ]; then
+        CONFIG_ARGS+=("--config" "$REPO_DIR/config.toml")
+    fi
+    if [ -d "$REPO_DIR/config.d" ]; then
+        while IFS= read -r -d '' cfg; do
+            CONFIG_ARGS+=("--config" "$cfg")
+        done < <(find "$REPO_DIR/config.d" -maxdepth 1 -type f -name '*.toml' -print0 | sort -z)
+    fi
     echo "Installing package from local checkout"
     "$REPO_DIR/.venv/bin/python" -m pip install --upgrade pip
     "$REPO_DIR/.venv/bin/python" -m pip install -e "$REPO_DIR"
@@ -76,7 +85,8 @@ Wants=network-online.target
 [Service]
 Type=exec
 WorkingDirectory=$REPO_DIR
-ExecStart=$REPO_DIR/.venv/bin/python -m meshcore_packet_capture
+Environment=MESHCORE_PACKETCAPTURE_ENV_DIR=$REPO_DIR
+ExecStart=$REPO_DIR/.venv/bin/python -m meshcore_packet_capture ${CONFIG_ARGS[*]}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=10
