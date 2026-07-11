@@ -16,6 +16,7 @@ log_level = "INFO"
 [topics]
 status = "meshcore/{IATA}/{PUBLIC_KEY}/status"
 packets = "meshcore/{IATA}/{PUBLIC_KEY}/packets"
+# command = "meshcore/{IATA}/{PUBLIC_KEY}/command/+"
 # raw = "meshcore/{IATA}/{PUBLIC_KEY}/raw"
 
 [serial]
@@ -88,6 +89,10 @@ rf_data_timeout = 15.0
 # token_ttl = 3600  # Optional: JWT lifetime in seconds (default 86400 = 24h)
 #
 # Optional per-broker topic overrides (take precedence over the global [topics];
-# unset keys fall back to [topics]). Keys: status, packets, decoded, debug, raw.
+# unset keys fall back to [topics]). Keys: status, packets, decoded, debug, raw, command.
+# Set a topic key to "off" (or "none"/"disabled") to disable publishing that
+# topic for this broker.
 # [broker.topics]
 # packets = "custom/{IATA}/{PUBLIC_KEY}/packets"
+# decoded = "off"
+# command = "off"

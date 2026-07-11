@@ -111,6 +111,30 @@ manual runs, development, or when you manage the process yourself. To run it as 
 managed background service, use the bootstrap installer (see [Quick Start](#quick-start)
 and [Managed-service installer](#managed-service-installer-linux-and-macos) below).
 
+### User systemd service from local checkout (Linux)
+
+If you are deploying from a local folder and want a per-user service (no root
+system unit), use:
+
+```bash
+./user_install.sh
+```
+
+This script creates/updates `.venv`, installs the package from your checkout,
+creates `~/.config/systemd/user/meshcore-packet-capture.service`, then enables
+and starts it.
+
+To remove the user service:
+
+```bash
+./user_uninstall.sh
+```
+
+Optional flags:
+
+- `./user_install.sh --help`
+- `./user_uninstall.sh --help`
+
 ### Docker Installation
 
 The project includes Docker support for easy deployment:
@@ -303,7 +327,31 @@ status  = "meshcore/{IATA}/{PUBLIC_KEY}/status"
 ```
 These flatten to `PACKETCAPTURE_MQTT<n>_TOPIC_<NAME>` (per broker) and
 `PACKETCAPTURE_TOPIC_<NAME>` (global fallback) — supported names: `STATUS`,
-`PACKETS`, `DECODED`, `DEBUG`, `RAW`.
+`PACKETS`, `DECODED`, `DEBUG`, `RAW`, `COMMAND`.
+
+To explicitly disable a topic for a broker (or globally), set it to one of:
+`off`, `none`, `disabled`, `false`, `0`, or an empty string.
+
+Example: keep decoded/private message events off a public broker while enabling
+them on a local broker:
+```toml
+[[broker]]
+name = "waev"
+enabled = true
+server = "mqtt.waev.app"
+
+[broker.topics]
+decoded = "off"
+
+[[broker]]
+name = "local"
+enabled = true
+server = "127.0.0.1"
+port = 1883
+
+[broker.topics]
+decoded = "meshcore/private/{PUBLIC_KEY}/decoded"
+```
 
 #### Authentication Methods
 
@@ -555,11 +603,53 @@ Default topic templates (from the shipped `config.toml`):
 - `meshcore/{IATA}/{PUBLIC_KEY}/status`: Device online/offline status (plus optional stats)
 - `meshcore/{IATA}/{PUBLIC_KEY}/packets`: Full packet data
 - `meshcore/{IATA}/{PUBLIC_KEY}/raw`: Raw packet data (commented out by default; enable it for e.g. map.w0z.is)
+- `meshcore/{IATA}/{PUBLIC_KEY}/command/+`: Inbound command topic (subscribe)
 
 These are configurable globally or per broker — see [Topic Templates](#topic-templates)
 and [Per-Broker Topic Overrides](#per-broker-topic-overrides). The classic flat form
 (`meshcore/status`, `meshcore/packets`, `meshcore/raw`) still works if you set the
 topics explicitly.
+
+### MQTT Command Ingress
+
+The capture process can receive MeshCore commands from MQTT and execute them on
+the connected radio. Command topic is configured globally/per-broker via
+`TOPIC_COMMAND` / `MQTT<n>_TOPIC_COMMAND`.
+
+Supported commands:
+
+- `send_msg` with `destination`, `message`
+- `send_chan_msg` with `channel`, `message`
+- `device_query`
+- `get_battery`
+- `set_name` with `name`
+- `send_advert` (optional `flood`)
+- `send_trace` (optional `auth_code`, `tag`, `flags`, `path`)
+- `send_telemetry_req` with `destination` (optional `password`)
+- `send_login` with `destination`, `password`
+- `send_logoff` with `destination`
+
+Examples:
+
+```bash
+# Direct message to a node id / contact name
+mosquitto_pub -h 127.0.0.1 \
+  -t "meshcore/LOC/MYDEVICEPUBKEY/command/send_msg" \
+  -m '{"destination":"cccccdbvtubkcjdjueurlflrfkcgirjlufjrdjjugldg","message":"hello from mqtt"}'
+
+# Channel message
+mosquitto_pub -h 127.0.0.1 \
+  -t "meshcore/LOC/MYDEVICEPUBKEY/command/send_chan_msg" \
+  -m '{"channel":0,"message":"hello channel"}'
+```
+
+To disable command ingestion on a public broker, set per-broker command topic to
+`off` (or `none`/`disabled`):
+
+```toml
+[broker.topics]
+command = "off"
+```
 
 ## Troubleshooting
 

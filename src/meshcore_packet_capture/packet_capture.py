@@ -290,6 +290,7 @@ class PacketCapture:
         # MQTT connection
         self.mqtt_clients = []  # List of MQTT client info dictionaries
         self.mqtt_connected = False
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         self.should_exit = False  # Flag to exit when reconnection attempts fail
         
         # Stats/status publishing
@@ -916,7 +917,7 @@ class PacketCapture:
             return True
         
         # Check if any configured topics use IATA placeholders
-        topic_types = ['STATUS', 'PACKETS', 'DECODED', 'DEBUG', 'RAW']
+        topic_types = ['STATUS', 'PACKETS', 'DECODED', 'DEBUG', 'RAW', 'COMMAND']
         for topic_type in topic_types:
             # Check broker-specific topic
             broker_topic = self.get_env(f'MQTT{broker_num}_TOPIC_{topic_type}', '')
@@ -934,17 +935,34 @@ class PacketCapture:
     def get_topic(self, topic_type, broker_num=None):
         """Get topic with template resolution, checking broker-specific override first"""
         topic_type_upper = topic_type.upper()
+
+        def _topic_is_disabled(value: str) -> bool:
+            return value.strip().lower() in {'', 'off', 'none', 'disabled', 'false', '0'}
+
+        def _get_topic_env_raw(env_key: str) -> Optional[str]:
+            full_key = f"PACKETCAPTURE_{env_key}"
+            return os.getenv(full_key)
         
         # Check broker-specific topic override
         if broker_num:
-            broker_topic = self.get_env(f'MQTT{broker_num}_TOPIC_{topic_type_upper}', '')
-            if broker_topic:
-                return self.resolve_topic_template(broker_topic, broker_num)
+            broker_topic_raw = _get_topic_env_raw(f'MQTT{broker_num}_TOPIC_{topic_type_upper}')
+            if broker_topic_raw is not None:
+                if _topic_is_disabled(broker_topic_raw):
+                    if self.debug:
+                        self.logger.debug(
+                            f"Topic {topic_type_upper} disabled for broker {broker_num}"
+                        )
+                    return None
+                return self.resolve_topic_template(broker_topic_raw, broker_num)
         
         # Fall back to global topic
-        global_topic = self.get_env(f'TOPIC_{topic_type_upper}', '')
-        if global_topic:
-            return self.resolve_topic_template(global_topic, broker_num)
+        global_topic_raw = _get_topic_env_raw(f'TOPIC_{topic_type_upper}')
+        if global_topic_raw is not None:
+            if _topic_is_disabled(global_topic_raw):
+                if self.debug:
+                    self.logger.debug(f"Global topic {topic_type_upper} explicitly disabled")
+                return None
+            return self.resolve_topic_template(global_topic_raw, broker_num)
         
         # For RAW topic, don't provide a default - only publish if explicitly configured
         if topic_type_upper == 'RAW':
@@ -964,13 +982,15 @@ class PacketCapture:
             'STATUS': 'meshcore/{IATA}/{PUBLIC_KEY}/status',
             'PACKETS': 'meshcore/{IATA}/{PUBLIC_KEY}/packets',
             'DECODED': 'meshcore/{IATA}/{PUBLIC_KEY}/decoded',
-            'DEBUG': 'meshcore/{IATA}/{PUBLIC_KEY}/debug'
+            'DEBUG': 'meshcore/{IATA}/{PUBLIC_KEY}/debug',
+            'COMMAND': 'meshcore/{IATA}/{PUBLIC_KEY}/command/+'
         }
         classic_defaults = {
             'STATUS': 'meshcore/status',
             'PACKETS': 'meshcore/packets',
             'DECODED': 'meshcore/decoded',
-            'DEBUG': 'meshcore/debug'
+            'DEBUG': 'meshcore/debug',
+            'COMMAND': 'meshcore/command/+'
         }
 
         if iata_configured:
@@ -2109,6 +2129,26 @@ class PacketCapture:
         if rc == 0:
             self.mqtt_connected = True
             self.logger.info(f"Connected to MQTT broker: {broker_name}")
+
+            if broker_num is not None:
+                command_topic = self.get_topic("command", broker_num)
+                if command_topic:
+                    qos = self.get_env_int(f'MQTT{broker_num}_QOS', 0)
+                    result = client.subscribe(command_topic, qos=qos)
+                    if isinstance(result, tuple):
+                        subscribe_rc = result[0]
+                    else:
+                        subscribe_rc = result
+
+                    mqtt_ok = getattr(mqtt, 'MQTT_ERR_SUCCESS', 0)
+                    if subscribe_rc == mqtt_ok:
+                        self.logger.info(
+                            f"Subscribed to command topic on {self.get_broker_label(broker_num)}: {command_topic}"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"Failed to subscribe command topic on {self.get_broker_label(broker_num)}: {command_topic}"
+                        )
             
             # Clear disconnect timestamp if this was a reconnection
             if broker_num and broker_num in self.mqtt_disconnect_timestamps:
@@ -2127,6 +2167,197 @@ class PacketCapture:
             self.logger.debug(f"MQTT broker {broker_name} connected, waiting for device connection...")
         else:
             self.logger.error(f"MQTT connection failed for {broker_name} with code {rc}")
+
+    def on_mqtt_message(self, client, userdata, msg):
+        """Handle inbound MQTT command messages and forward to MeshCore commands."""
+        broker_num = userdata.get('broker_num', None) if userdata else None
+        broker_label = self.get_broker_label(broker_num) if broker_num else 'unknown'
+
+        try:
+            payload_text = msg.payload.decode('utf-8') if msg.payload else '{}'
+            payload_data: Dict[str, Any] = json.loads(payload_text) if payload_text else {}
+            if not isinstance(payload_data, dict):
+                self.logger.warning(
+                    f"Ignoring non-object command payload from {broker_label} on {msg.topic}"
+                )
+                return
+        except Exception as e:
+            self.logger.warning(
+                f"Invalid JSON payload on {msg.topic} from {broker_label}: {e}"
+            )
+            return
+
+        topic_command_type = msg.topic.split('/')[-1] if msg.topic else ''
+        command_type = payload_data.get('command_type') or topic_command_type
+        if not command_type or command_type in {'command', '+'}:
+            self.logger.warning(
+                f"Ignoring command message without command type from {broker_label} on {msg.topic}"
+            )
+            return
+
+        if self._event_loop is None:
+            self.logger.warning("Event loop unavailable; cannot process MQTT command")
+            return
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._process_mqtt_command(command_type, payload_data, broker_num),
+            self._event_loop,
+        )
+
+        def _done_callback(done_future):
+            try:
+                done_future.result()
+            except Exception as exc:
+                self.logger.error(f"Error processing MQTT command '{command_type}': {exc}")
+
+        future.add_done_callback(_done_callback)
+
+    async def _process_mqtt_command(
+        self, command_type: str, payload_data: Dict[str, Any], broker_num: Optional[int]
+    ) -> None:
+        """Execute supported MeshCore commands from MQTT command payloads."""
+        broker_label = self.get_broker_label(broker_num) if broker_num else 'unknown'
+        command = command_type.strip().lower()
+
+        if not self._ensure_connected(f"mqtt command '{command}'", "warning"):
+            return
+
+        self.logger.info(f"Processing MQTT command '{command}' from {broker_label}")
+
+        async def _run_command(command_name: str, command_func, timeout: float = 10.0):
+            retries = self.default_retry_limit
+            result = await self.retryable_device_command(
+                command_func,
+                command_name,
+                timeout=timeout,
+                max_retries=retries,
+                retry_delay=0.2,
+            )
+            if result is None:
+                self.logger.warning(
+                    f"MQTT command '{command_name}' failed on {broker_label}: no response"
+                )
+                return
+            if hasattr(result, 'type') and result.type == EventType.ERROR:
+                self.logger.warning(
+                    f"MQTT command '{command_name}' failed on {broker_label}: {result.payload}"
+                )
+                return
+            self.logger.info(f"MQTT command '{command_name}' succeeded on {broker_label}")
+
+        if command == 'send_msg':
+            destination = payload_data.get('destination')
+            message = payload_data.get('message')
+            if not destination or not isinstance(destination, str):
+                self.logger.warning("send_msg requires string 'destination'")
+                return
+            if not message or not isinstance(message, str):
+                self.logger.warning("send_msg requires string 'message'")
+                return
+            await _run_command(
+                'send_msg',
+                lambda: self.meshcore.commands.send_msg(destination, message),
+            )
+            return
+
+        if command == 'send_chan_msg':
+            channel = payload_data.get('channel')
+            message = payload_data.get('message')
+            if channel is None:
+                self.logger.warning("send_chan_msg requires 'channel'")
+                return
+            try:
+                channel_idx = int(channel)
+            except (TypeError, ValueError):
+                self.logger.warning("send_chan_msg requires numeric 'channel'")
+                return
+            if not message or not isinstance(message, str):
+                self.logger.warning("send_chan_msg requires string 'message'")
+                return
+            await _run_command(
+                'send_chan_msg',
+                lambda: self.meshcore.commands.send_chan_msg(channel_idx, message),
+            )
+            return
+
+        if command == 'device_query':
+            await _run_command('device_query', lambda: self.meshcore.commands.send_device_query())
+            return
+
+        if command == 'get_battery':
+            await _run_command('get_battery', lambda: self.meshcore.commands.get_bat())
+            return
+
+        if command == 'set_name':
+            name = payload_data.get('name')
+            if not name or not isinstance(name, str):
+                self.logger.warning("set_name requires string 'name'")
+                return
+            await _run_command('set_name', lambda: self.meshcore.commands.set_name(name))
+            return
+
+        if command == 'send_advert':
+            flood = bool(payload_data.get('flood', False))
+            await _run_command('send_advert', lambda: self.meshcore.commands.send_advert(flood=flood))
+            return
+
+        if command == 'send_trace':
+            kwargs: Dict[str, Any] = {}
+            for key in ('auth_code', 'tag', 'flags', 'path'):
+                if key in payload_data:
+                    kwargs[key] = payload_data[key]
+            await _run_command('send_trace', lambda: self.meshcore.commands.send_trace(**kwargs))
+            return
+
+        if command == 'send_telemetry_req':
+            destination = payload_data.get('destination')
+            if not destination or not isinstance(destination, str):
+                self.logger.warning("send_telemetry_req requires string 'destination'")
+                return
+
+            password = payload_data.get('password')
+            if password:
+                if not isinstance(password, str):
+                    self.logger.warning("send_telemetry_req 'password' must be string when provided")
+                    return
+                await _run_command(
+                    'send_login(auto)',
+                    lambda: self.meshcore.commands.send_login(destination, password),
+                )
+
+            await _run_command(
+                'send_telemetry_req',
+                lambda: self.meshcore.commands.send_telemetry_req(destination),
+            )
+            return
+
+        if command == 'send_login':
+            destination = payload_data.get('destination')
+            password = payload_data.get('password')
+            if not destination or not isinstance(destination, str):
+                self.logger.warning("send_login requires string 'destination'")
+                return
+            if not password or not isinstance(password, str):
+                self.logger.warning("send_login requires string 'password'")
+                return
+            await _run_command(
+                'send_login',
+                lambda: self.meshcore.commands.send_login(destination, password),
+            )
+            return
+
+        if command == 'send_logoff':
+            destination = payload_data.get('destination')
+            if not destination or not isinstance(destination, str):
+                self.logger.warning("send_logoff requires string 'destination'")
+                return
+            await _run_command(
+                'send_logoff',
+                lambda: self.meshcore.commands.send_logoff(destination),
+            )
+            return
+
+        self.logger.warning(f"Unknown MQTT command '{command}' from {broker_label}")
 
     def on_mqtt_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         broker_name = userdata.get('name', 'unknown') if userdata else 'unknown'
@@ -2323,6 +2554,7 @@ class PacketCapture:
             # Set callbacks
             mqtt_client.on_connect = self.on_mqtt_connect
             mqtt_client.on_disconnect = self.on_mqtt_disconnect
+            mqtt_client.on_message = self.on_mqtt_message
             
             # Get connection parameters
             server = self.get_env(f'MQTT{broker_num}_SERVER', "")
@@ -3309,6 +3541,71 @@ class PacketCapture:
             publish_metrics["succeeded"] = packet_metrics["succeeded"] + raw_metrics["succeeded"]
 
         return publish_metrics
+
+    async def handle_decoded_message_event(self, event):
+        """Handle decoded MeshCore message events and publish message content."""
+        try:
+            payload = getattr(event, 'payload', None)
+            if not isinstance(payload, dict):
+                if self.debug:
+                    self.logger.debug(f"Skipping message event without dict payload: {payload}")
+                return
+
+            event_type_name = str(getattr(event, 'type', 'UNKNOWN')).split('.')[-1]
+            message_type = payload.get('type', '')
+
+            # Determine message routing details for direct/channel messages.
+            is_channel = message_type == 'CHAN' or event_type_name == 'CHANNEL_MSG_RECV'
+            direction = 'channel' if is_channel else 'direct'
+
+            message_data = {
+                'origin': self.device_name or self.get_env('ORIGIN', 'MeshCore Device'),
+                'origin_id': self.device_public_key.upper() if self.device_public_key and self.device_public_key != 'Unknown' else None,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'type': 'DECODED_MESSAGE',
+                'event_type': event_type_name,
+                'direction': direction,
+                'message': payload.get('text', ''),
+                'message_type': message_type,
+                'from': payload.get('from'),
+                'to': payload.get('to'),
+                'channel_idx': payload.get('channel_idx'),
+                'pubkey_prefix': payload.get('pubkey_prefix'),
+                'msg_id': payload.get('msg_id'),
+                'event_payload': payload,
+            }
+
+            # Drop empty values to keep payload compact.
+            message_data = {
+                key: value for key, value in message_data.items() if value not in (None, '')
+            }
+
+            if self.verbose:
+                self.logger.info(f"💬 Decoded {direction} message event: {json.dumps(message_data)}")
+            else:
+                message_preview = message_data.get('message', '')
+                self.logger.info(
+                    f"💬 Decoded {direction} message"
+                    f" (from={message_data.get('from', 'unknown')}, "
+                    f"channel={message_data.get('channel_idx', '-')})"
+                    f": {message_preview}"
+                )
+
+            if self.enable_mqtt:
+                self.safe_publish(None, json.dumps(message_data), topic_type='decoded')
+
+        except Exception as e:
+            self.logger.error(f"Error handling decoded message event: {e}")
+
+    def _subscribe_event_if_available(self, event_name: str, handler) -> bool:
+        """Subscribe to an EventType by name when available in the current SDK."""
+        event_type = getattr(EventType, event_name, None)
+        if event_type is None:
+            self.logger.debug(f"EventType.{event_name} not available in current meshcore SDK")
+            return False
+
+        self.meshcore.subscribe(event_type, handler)
+        return True
     
     async def setup_disconnect_handler(self):
         """Set up handler for disconnect events from meshcore"""
@@ -3335,9 +3632,9 @@ class PacketCapture:
             # Update connection status - connection monitor will handle reconnection
             self.connected = False
             self.logger.info("Connection status updated - connection monitor will handle reconnection")
-        
-        self.meshcore.subscribe(EventType.DISCONNECTED, on_disconnect)
-        self.logger.debug("Disconnect event handler registered")
+
+        if self._subscribe_event_if_available('DISCONNECTED', on_disconnect):
+            self.logger.debug("Disconnect event handler registered")
 
     async def setup_event_handlers(self):
         """Setup event handlers for packet capture"""
@@ -3364,11 +3661,23 @@ class PacketCapture:
                 # Log the status data to see what's available
                 if hasattr(event, 'payload') and event.payload:
                     self.logger.debug(f"Status data: {event.payload}")
+
+        async def on_contact_message(event):
+            if self.debug:
+                self.logger.debug(f"CONTACT_MSG_RECV event received: {event}")
+            await self.handle_decoded_message_event(event)
+
+        async def on_channel_message(event):
+            if self.debug:
+                self.logger.debug(f"CHANNEL_MSG_RECV event received: {event}")
+            await self.handle_decoded_message_event(event)
         
         # Subscribe to events
-        self.meshcore.subscribe(EventType.RX_LOG_DATA, on_rf_data)
-        self.meshcore.subscribe(EventType.RAW_DATA, on_raw_data)
-        self.meshcore.subscribe(EventType.STATUS_RESPONSE, on_status_response)
+        self._subscribe_event_if_available('RX_LOG_DATA', on_rf_data)
+        self._subscribe_event_if_available('RAW_DATA', on_raw_data)
+        self._subscribe_event_if_available('STATUS_RESPONSE', on_status_response)
+        self._subscribe_event_if_available('CONTACT_MSG_RECV', on_contact_message)
+        self._subscribe_event_if_available('CHANNEL_MSG_RECV', on_channel_message)
         
         # Setup disconnect handler
         await self.setup_disconnect_handler()
@@ -3381,6 +3690,7 @@ class PacketCapture:
     async def start(self):
         """Start packet capture"""
         self.logger.info("Starting MeshCore Packet Capture...")
+        self._event_loop = asyncio.get_running_loop()
         
         # Connect to MeshCore node
         if not await self.connect():

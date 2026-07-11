@@ -81,6 +81,24 @@ def test_resolve_topic_template_replaces_token_placeholder(monkeypatch: pytest.M
     assert topic == "meshrank/uplink/tok123/ABCDEF/packets"
 
 
+def test_get_topic_broker_can_disable_decoded(
+    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
+) -> None:
+    monkeypatch.setenv("PACKETCAPTURE_MQTT1_TOPIC_DECODED", "off")
+    assert capture.get_topic("decoded", broker_num=1) is None
+
+
+def test_get_topic_global_disable_blocks_default(
+    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
+) -> None:
+    monkeypatch.setenv("PACKETCAPTURE_TOPIC_DECODED", "disabled")
+    assert capture.get_topic("decoded", broker_num=2) is None
+
+
+def test_get_topic_command_default(capture: PacketCapture) -> None:
+    assert capture.get_topic("command", broker_num=1) == "meshcore/command/+"
+
+
 @pytest.mark.asyncio
 async def test_refresh_stats_fetches_packet_stats(monkeypatch: pytest.MonkeyPatch, capture: PacketCapture) -> None:
     event_type = types.SimpleNamespace(
@@ -167,3 +185,122 @@ async def test_publish_status_includes_packet_stats_aliases(capture: PacketCaptu
     assert published
     assert published[0]["stats"]["packets_received"] == 1234
     assert published[0]["stats"]["packets_sent"] == 567
+
+
+@pytest.mark.asyncio
+async def test_handle_decoded_message_event_publishes_decoded_payload(
+    capture: PacketCapture,
+) -> None:
+    published: list[tuple[str | None, str, str | None]] = []
+
+    capture.enable_mqtt = True
+    capture.mqtt_connected = True
+    capture.device_name = "node"
+    capture.device_public_key = "abc123"
+
+    def _publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs.get("topic_type")))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.safe_publish = _publish
+
+    event = types.SimpleNamespace(
+        type="CONTACT_MSG_RECV",
+        payload={
+            "type": "PRIV",
+            "text": "hello world",
+            "from": "node-a",
+            "pubkey_prefix": "a1b2c3",
+            "msg_id": "msg-1",
+        },
+    )
+
+    await capture.handle_decoded_message_event(event)
+
+    assert published
+    assert published[0][2] == "decoded"
+    payload_json = json.loads(published[0][1])
+    assert payload_json["type"] == "DECODED_MESSAGE"
+    assert payload_json["direction"] == "direct"
+    assert payload_json["message"] == "hello world"
+    assert payload_json["from"] == "node-a"
+
+
+@pytest.mark.asyncio
+async def test_setup_event_handlers_subscribes_message_events(
+    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
+) -> None:
+    subscribed: list[tuple[str, object]] = []
+
+    event_type = types.SimpleNamespace(
+        RX_LOG_DATA="RX_LOG_DATA",
+        RAW_DATA="RAW_DATA",
+        STATUS_RESPONSE="STATUS_RESPONSE",
+        CONTACT_MSG_RECV="CONTACT_MSG_RECV",
+        CHANNEL_MSG_RECV="CHANNEL_MSG_RECV",
+        DISCONNECTED="DISCONNECTED",
+    )
+    monkeypatch.setattr(pc_mod, "EventType", event_type)
+
+    capture.meshcore = types.SimpleNamespace(
+        subscribe=lambda event_name, handler: subscribed.append((event_name, handler)),
+        dispatcher=types.SimpleNamespace(subscriptions=[]),
+        unsubscribe=lambda _subscription: None,
+    )
+
+    await capture.setup_event_handlers()
+
+    subscribed_names = {name for name, _handler in subscribed}
+    assert "CONTACT_MSG_RECV" in subscribed_names
+    assert "CHANNEL_MSG_RECV" in subscribed_names
+
+
+def test_on_mqtt_connect_subscribes_command_topic(
+    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
+) -> None:
+    class _Client:
+        def __init__(self):
+            self.subscribed = []
+
+        def subscribe(self, topic, qos=0):
+            self.subscribed.append((topic, qos))
+            return (0, 1)
+
+    monkeypatch.setenv("PACKETCAPTURE_MQTT1_QOS", "1")
+    monkeypatch.setenv("PACKETCAPTURE_MQTT1_TOPIC_COMMAND", "local/mesh/command/+")
+    client = _Client()
+
+    capture.on_mqtt_connect(client, {"name": "local", "broker_num": 1}, None, 0)
+
+    assert client.subscribed == [("local/mesh/command/+", 1)]
+
+
+@pytest.mark.asyncio
+async def test_process_mqtt_command_send_msg_executes_meshcore_command(
+    capture: PacketCapture,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def _send_msg(destination, message):
+        calls.append((destination, message))
+        return types.SimpleNamespace(type="OK", payload={})
+
+    async def _retry(command_func, _command_name, **_kwargs):
+        return await command_func()
+
+    capture.meshcore = types.SimpleNamespace(
+        is_connected=True,
+        commands=types.SimpleNamespace(send_msg=_send_msg),
+    )
+    capture.retryable_device_command = _retry
+
+    await capture._process_mqtt_command(
+        "send_msg",
+        {
+            "destination": "cccccdbvtubkcjdjueurlflrfkcgirjlufjrdjjugldg",
+            "message": "hello",
+        },
+        broker_num=1,
+    )
+
+    assert calls == [("cccccdbvtubkcjdjueurlflrfkcgirjlufjrdjjugldg", "hello")]
