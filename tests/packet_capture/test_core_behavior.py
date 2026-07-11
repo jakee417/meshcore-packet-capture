@@ -465,7 +465,7 @@ async def test_handle_decoded_message_event_routes_channel_topic_per_broker(
 
 
 @pytest.mark.asyncio
-async def test_setup_event_handlers_subscribes_message_events(
+async def test_setup_event_handlers_does_not_subscribe_message_events(
     monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
 ) -> None:
     subscribed: list[tuple[str, object]] = []
@@ -489,7 +489,69 @@ async def test_setup_event_handlers_subscribes_message_events(
     await capture.setup_event_handlers()
 
     subscribed_names = {name for name, _handler in subscribed}
+    assert "CONTACT_MSG_RECV" not in subscribed_names
+    assert "CHANNEL_MSG_RECV" not in subscribed_names
+
+
+@pytest.mark.asyncio
+async def test_setup_event_handlers_subscribes_contact_when_direct_configured(
+    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
+) -> None:
+    subscribed: list[tuple[str, object]] = []
+
+    event_type = types.SimpleNamespace(
+        RX_LOG_DATA="RX_LOG_DATA",
+        RAW_DATA="RAW_DATA",
+        STATUS_RESPONSE="STATUS_RESPONSE",
+        CONTACT_MSG_RECV="CONTACT_MSG_RECV",
+        CHANNEL_MSG_RECV="CHANNEL_MSG_RECV",
+        DISCONNECTED="DISCONNECTED",
+    )
+    monkeypatch.setattr(pc_mod, "EventType", event_type)
+    monkeypatch.setenv("PACKETCAPTURE_MQTT1_ENABLED", "true")
+    monkeypatch.setenv("PACKETCAPTURE_MQTT1_TOPIC_DIRECT", "meshcore/private/{PUBLIC_KEY}/direct")
+
+    capture.meshcore = types.SimpleNamespace(
+        subscribe=lambda event_name, handler: subscribed.append((event_name, handler)),
+        dispatcher=types.SimpleNamespace(subscriptions=[]),
+        unsubscribe=lambda _subscription: None,
+    )
+
+    await capture.setup_event_handlers()
+
+    subscribed_names = {name for name, _handler in subscribed}
     assert "CONTACT_MSG_RECV" in subscribed_names
+    assert "CHANNEL_MSG_RECV" not in subscribed_names
+
+
+@pytest.mark.asyncio
+async def test_setup_event_handlers_subscribes_channel_when_channel_configured(
+    monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
+) -> None:
+    subscribed: list[tuple[str, object]] = []
+
+    event_type = types.SimpleNamespace(
+        RX_LOG_DATA="RX_LOG_DATA",
+        RAW_DATA="RAW_DATA",
+        STATUS_RESPONSE="STATUS_RESPONSE",
+        CONTACT_MSG_RECV="CONTACT_MSG_RECV",
+        CHANNEL_MSG_RECV="CHANNEL_MSG_RECV",
+        DISCONNECTED="DISCONNECTED",
+    )
+    monkeypatch.setattr(pc_mod, "EventType", event_type)
+    monkeypatch.setenv("PACKETCAPTURE_MQTT1_ENABLED", "true")
+    monkeypatch.setenv("PACKETCAPTURE_MQTT1_TOPIC_CHANNEL", "meshcore/private/{PUBLIC_KEY}/channel/{CHANNEL}")
+
+    capture.meshcore = types.SimpleNamespace(
+        subscribe=lambda event_name, handler: subscribed.append((event_name, handler)),
+        dispatcher=types.SimpleNamespace(subscriptions=[]),
+        unsubscribe=lambda _subscription: None,
+    )
+
+    await capture.setup_event_handlers()
+
+    subscribed_names = {name for name, _handler in subscribed}
+    assert "CONTACT_MSG_RECV" not in subscribed_names
     assert "CHANNEL_MSG_RECV" in subscribed_names
 
 

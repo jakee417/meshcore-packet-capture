@@ -37,6 +37,8 @@ from meshcore import EventType
 
 # Import our enums for packet parsing
 from .enums import AdvertFlags, PayloadType, PayloadVersion, RouteType, DeviceRole
+from .direct_capture import direct_topic_enabled_on_any_broker, resolve_direct_topic
+from .channel_capture import channel_topic_enabled_on_any_broker, resolve_channel_topic
 
 # Import MQTT client
 try:
@@ -3605,11 +3607,14 @@ class PacketCapture:
                         broker_num = mqtt_client_info['broker_num']
                         mqtt_client = mqtt_client_info['client']
                         decoded_topic = self.get_topic('decoded', broker_num)
-                        message_topic = self._resolve_message_direction_topic(
-                            broker_num=broker_num,
-                            direction=direction,
-                            channel_idx=message_data.get('channel_idx'),
-                        )
+                        if direction == 'channel':
+                            message_topic = resolve_channel_topic(
+                                self,
+                                broker_num,
+                                message_data.get('channel_idx'),
+                            )
+                        else:
+                            message_topic = resolve_direct_topic(self, broker_num)
                         if decoded_topic:
                             self.safe_publish(
                                 decoded_topic,
@@ -3627,27 +3632,6 @@ class PacketCapture:
 
         except Exception as e:
             self.logger.error(f"Error handling decoded message event: {e}")
-
-    def _resolve_message_direction_topic(
-        self,
-        broker_num: int,
-        direction: str,
-        channel_idx: Any,
-    ) -> Optional[str]:
-        """Resolve direct/channel topics for decoded message events."""
-        if direction == 'channel':
-            channel_topic = self.get_topic('channel', broker_num)
-            if not channel_topic:
-                return None
-            try:
-                channel_value = int(channel_idx)
-            except (TypeError, ValueError):
-                channel_value = 0
-            if '{CHANNEL}' in channel_topic:
-                return channel_topic.replace('{CHANNEL}', str(channel_value))
-            return f"{channel_topic.rstrip('/')}/{channel_value}"
-
-        return self.get_topic('direct', broker_num)
 
     @staticmethod
     def _coerce_signal_value(value: Any) -> Optional[float]:
@@ -3712,7 +3696,7 @@ class PacketCapture:
 
         self.meshcore.subscribe(event_type, handler)
         return True
-    
+
     async def setup_disconnect_handler(self):
         """Set up handler for disconnect events from meshcore"""
         async def on_disconnect(event):
@@ -3777,13 +3761,15 @@ class PacketCapture:
             if self.debug:
                 self.logger.debug(f"CHANNEL_MSG_RECV event received: {event}")
             await self.handle_decoded_message_event(event)
-        
+
         # Subscribe to events
         self._subscribe_event_if_available('RX_LOG_DATA', on_rf_data)
         self._subscribe_event_if_available('RAW_DATA', on_raw_data)
         self._subscribe_event_if_available('STATUS_RESPONSE', on_status_response)
-        self._subscribe_event_if_available('CONTACT_MSG_RECV', on_contact_message)
-        self._subscribe_event_if_available('CHANNEL_MSG_RECV', on_channel_message)
+        if direct_topic_enabled_on_any_broker(self):
+            self._subscribe_event_if_available('CONTACT_MSG_RECV', on_contact_message)
+        if channel_topic_enabled_on_any_broker(self):
+            self._subscribe_event_if_available('CHANNEL_MSG_RECV', on_channel_message)
         
         # Setup disconnect handler
         await self.setup_disconnect_handler()
