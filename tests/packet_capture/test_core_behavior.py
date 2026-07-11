@@ -354,6 +354,52 @@ async def test_handle_decoded_message_event_prefers_correlation_key_signal(
 
 
 @pytest.mark.asyncio
+async def test_handle_decoded_message_event_correlates_with_sender_timestamp_tuple(
+    capture: PacketCapture,
+) -> None:
+    published: list[tuple[str | None, str, str | None]] = []
+
+    capture.enable_mqtt = True
+    capture.mqtt_connected = True
+
+    event_payload = {
+        "type": "PRIV",
+        "text": "Test",
+        "pubkey_prefix": "5203d19bcc67",
+        "sender_timestamp": 1783795526,
+        "txt_type": 0,
+        "path_len": 255,
+        "path_hash_mode": -1,
+    }
+    corr_key = capture._build_message_correlation_key(event_payload, "CONTACT_MSG_RECV")
+    assert corr_key is not None
+    capture.message_signal_cache[corr_key] = {
+        "snr": 12.0,
+        "rssi": -83,
+        "timestamp": 10.0,
+    }
+
+    def _publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs.get("topic_type")))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.safe_publish = _publish
+
+    event = types.SimpleNamespace(type="CONTACT_MSG_RECV", payload=event_payload)
+
+    original_time = pc_mod.time.time
+    try:
+        pc_mod.time.time = lambda: 12.0
+        await capture.handle_decoded_message_event(event)
+    finally:
+        pc_mod.time.time = original_time
+
+    payload_json = json.loads(published[0][1])
+    assert payload_json["snr"] == 12.0
+    assert payload_json["rssi"] == -83.0
+
+
+@pytest.mark.asyncio
 async def test_setup_event_handlers_subscribes_message_events(
     monkeypatch: pytest.MonkeyPatch, capture: PacketCapture
 ) -> None:

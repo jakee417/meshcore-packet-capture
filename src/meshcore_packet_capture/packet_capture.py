@@ -3668,6 +3668,40 @@ class PacketCapture:
         if packet_hash not in (None, ''):
             return f"hash|{str(packet_hash).upper()}"
 
+        sender_timestamp = payload.get('sender_timestamp')
+        pubkey_prefix = payload.get('pubkey_prefix')
+        text = payload.get('text') or payload.get('message')
+        message_type = payload.get('type')
+
+        # Native decoded tuple seen on CONTACT/CHANNEL events when msg_id is absent.
+        if (
+            sender_timestamp not in (None, '')
+            and pubkey_prefix not in (None, '')
+            and text not in (None, '')
+        ):
+            text_hash = hashlib.sha256(str(text).encode('utf-8')).hexdigest()[:16]
+            key_parts = [
+                'st',
+                str(pubkey_prefix).upper(),
+                str(sender_timestamp),
+                str(message_type or '').upper(),
+                text_hash,
+            ]
+
+            txt_type = payload.get('txt_type')
+            if txt_type not in (None, ''):
+                key_parts.append(str(txt_type))
+
+            path_len = payload.get('path_len')
+            if path_len not in (None, ''):
+                key_parts.append(str(path_len))
+
+            path_hash_mode = payload.get('path_hash_mode')
+            if path_hash_mode not in (None, ''):
+                key_parts.append(str(path_hash_mode))
+
+            return '|'.join(key_parts)
+
         sender = payload.get('from')
         text = payload.get('text') or payload.get('message')
         channel_idx = payload.get('channel_idx')
