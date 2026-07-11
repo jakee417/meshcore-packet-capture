@@ -322,7 +322,6 @@ class PacketCapture:
         
         # Packet correlation cache
         self.rf_data_cache = {}
-        self.message_signal_cache = {}
         self.recent_rf_packets = {}
         self.raw_duplicate_window = self.get_env_float('RAW_DUPLICATE_WINDOW', 2.0)
         # When True (default), call get_msg() on MESSAGES_WAITING to drain the device message queue.
@@ -2225,7 +2224,7 @@ class PacketCapture:
 
         self.logger.info(f"Processing MQTT command '{command}' from {broker_label}")
 
-        async def _run_command(command_name: str, command_func, timeout: float = 10.0):
+        async def _run_command(command_name: str, command_func, timeout: float = 10.0) -> bool:
             retries = self.default_retry_limit
             result = await self.retryable_device_command(
                 command_func,
@@ -2238,13 +2237,14 @@ class PacketCapture:
                 self.logger.warning(
                     f"MQTT command '{command_name}' failed on {broker_label}: no response"
                 )
-                return
+                return False
             if hasattr(result, 'type') and result.type == EventType.ERROR:
                 self.logger.warning(
                     f"MQTT command '{command_name}' failed on {broker_label}: {result.payload}"
                 )
-                return
+                return False
             self.logger.info(f"MQTT command '{command_name}' succeeded on {broker_label}")
+            return True
 
         if command == 'send_msg':
             destination = payload_data.get('destination')
@@ -2255,10 +2255,12 @@ class PacketCapture:
             if not message or not isinstance(message, str):
                 self.logger.warning("send_msg requires string 'message'")
                 return
-            await _run_command(
+            sent = await _run_command(
                 'send_msg',
                 lambda: self.meshcore.commands.send_msg(destination, message),
             )
+            if sent:
+                self.logger.info(f"📤 Sent direct message (to={destination}): {message}")
             return
 
         if command == 'send_chan_msg':
@@ -2275,10 +2277,12 @@ class PacketCapture:
             if not message or not isinstance(message, str):
                 self.logger.warning("send_chan_msg requires string 'message'")
                 return
-            await _run_command(
+            sent = await _run_command(
                 'send_chan_msg',
                 lambda: self.meshcore.commands.send_chan_msg(channel_idx, message),
             )
+            if sent:
+                self.logger.info(f"📤 Sent channel message (channel={channel_idx}): {message}")
             return
 
         if command == 'device_query':
@@ -3399,16 +3403,6 @@ class PacketCapture:
                     }
                     
                     self.rf_data_cache[packet_prefix] = rf_data
-
-                    # If RX payload carries message identity fields, cache signal by correlation key.
-                    correlation_key = self._build_message_correlation_key(payload)
-                    if correlation_key:
-                        self.message_signal_cache[correlation_key] = {
-                            'snr': rf_data.get('snr'),
-                            'rssi': rf_data.get('rssi'),
-                            'timestamp': rf_data.get('timestamp'),
-                            'raw_hex': raw_hex,
-                        }
                     
                     # Clean up old cache entries
                     current_time = time.time()
@@ -3416,13 +3410,6 @@ class PacketCapture:
                     self.rf_data_cache = {
                         k: v for k, v in self.rf_data_cache.items()
                         if current_time - v['timestamp'] < timeout
-                    }
-                    self.message_signal_cache = {
-                        k: v
-                        for k, v in self.message_signal_cache.items()
-                        if isinstance(v, dict)
-                        and isinstance(v.get('timestamp'), (int, float))
-                        and (current_time - float(v['timestamp'])) < timeout
                     }
                     
                     # Remember RF-originated packets so RAW_DATA for the same reception doesn't double-publish.
@@ -3575,7 +3562,7 @@ class PacketCapture:
             # Determine message routing details for direct/channel messages.
             is_channel = message_type == 'CHAN' or event_type_name == 'CHANNEL_MSG_RECV'
             direction = 'channel' if is_channel else 'direct'
-            snr, rssi = self._best_effort_message_signal(payload, event_type_name)
+            snr, rssi = self._best_effort_message_signal(payload)
 
             message_data = {
                 'origin': self.device_name or self.get_env('ORIGIN', 'MeshCore Device'),
@@ -3640,102 +3627,15 @@ class PacketCapture:
 
         return snr, rssi
 
-    def _build_message_correlation_key(
-        self,
-        payload: dict[str, Any],
-        event_type_name: Optional[str] = None,
-    ) -> Optional[str]:
-        """Build a stable message identity key for RF/message correlation.
-
-        Uses the most specific identity available (msg_id/hash), then augments with
-        routing fields to reduce collisions.
-        """
-        msg_id = payload.get('msg_id')
-        if msg_id not in (None, ''):
-            parts = ['msgid', str(msg_id)]
-            pubkey_prefix = payload.get('pubkey_prefix')
-            if pubkey_prefix not in (None, ''):
-                parts.append(str(pubkey_prefix).upper())
-            sender = payload.get('from')
-            if sender not in (None, ''):
-                parts.append(str(sender).upper())
-            channel_idx = payload.get('channel_idx')
-            if channel_idx not in (None, ''):
-                parts.append(str(channel_idx))
-            return '|'.join(parts)
-
-        packet_hash = payload.get('hash') or payload.get('packet_hash')
-        if packet_hash not in (None, ''):
-            return f"hash|{str(packet_hash).upper()}"
-
-        sender_timestamp = payload.get('sender_timestamp')
-        pubkey_prefix = payload.get('pubkey_prefix')
-        text = payload.get('text') or payload.get('message')
-        message_type = payload.get('type')
-
-        # Native decoded tuple seen on CONTACT/CHANNEL events when msg_id is absent.
-        if (
-            sender_timestamp not in (None, '')
-            and pubkey_prefix not in (None, '')
-            and text not in (None, '')
-        ):
-            text_hash = hashlib.sha256(str(text).encode('utf-8')).hexdigest()[:16]
-            key_parts = [
-                'st',
-                str(pubkey_prefix).upper(),
-                str(sender_timestamp),
-                str(message_type or '').upper(),
-                text_hash,
-            ]
-
-            txt_type = payload.get('txt_type')
-            if txt_type not in (None, ''):
-                key_parts.append(str(txt_type))
-
-            path_len = payload.get('path_len')
-            if path_len not in (None, ''):
-                key_parts.append(str(path_len))
-
-            path_hash_mode = payload.get('path_hash_mode')
-            if path_hash_mode not in (None, ''):
-                key_parts.append(str(path_hash_mode))
-
-            return '|'.join(key_parts)
-
-        sender = payload.get('from')
-        text = payload.get('text') or payload.get('message')
-        channel_idx = payload.get('channel_idx')
-        recipient = payload.get('to')
-        message_type = payload.get('type')
-
-        # Fallback fingerprint from routing/content fields when IDs are unavailable.
-        if sender not in (None, '') and text not in (None, ''):
-            fallback_identity = {
-                'event_type': event_type_name or '',
-                'type': message_type or '',
-                'from': str(sender).upper(),
-                'to': str(recipient).upper() if recipient not in (None, '') else '',
-                'channel_idx': str(channel_idx) if channel_idx not in (None, '') else '',
-                'text': str(text),
-            }
-            digest = hashlib.sha256(
-                json.dumps(fallback_identity, sort_keys=True, separators=(',', ':')).encode('utf-8')
-            ).hexdigest()[:24]
-            return f"fp|{digest}"
-
-        return None
-
     def _best_effort_message_signal(
         self,
         payload: dict[str, Any],
-        event_type_name: Optional[str] = None,
     ) -> tuple[Optional[float], Optional[float]]:
         """Best-effort SNR/RSSI for decoded message events.
 
         Priority:
         1) Top-level payload values (`snr`/`rssi`, case-insensitive)
         2) Nested payload metadata (`metadata.signal` and `attributes`)
-        3) Correlation-key signal cache within RF_DATA_TIMEOUT
         """
         snr, rssi = self._extract_signal_from_mapping(payload)
 
@@ -3756,29 +3656,6 @@ class PacketCapture:
                 snr = attr_snr
             if rssi is None:
                 rssi = attr_rssi
-
-        if snr is not None and rssi is not None:
-            return snr, rssi
-
-        current_time = time.time()
-        timeout = self.get_env_float('RF_DATA_TIMEOUT', 15.0)
-
-        correlation_key = self._build_message_correlation_key(payload, event_type_name)
-        if correlation_key:
-            correlated = self.message_signal_cache.get(correlation_key)
-            if (
-                isinstance(correlated, dict)
-                and isinstance(correlated.get('timestamp'), (int, float))
-                and (current_time - float(correlated['timestamp'])) < timeout
-            ):
-                exact_snr = self._coerce_signal_value(correlated.get('snr'))
-                exact_rssi = self._coerce_signal_value(correlated.get('rssi'))
-                if snr is None:
-                    snr = exact_snr
-                if rssi is None:
-                    rssi = exact_rssi
-                if snr is not None and rssi is not None:
-                    return snr, rssi
 
         return snr, rssi
 

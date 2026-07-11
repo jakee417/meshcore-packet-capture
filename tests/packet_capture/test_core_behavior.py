@@ -262,7 +262,7 @@ async def test_handle_decoded_message_event_includes_payload_signal(
 
 
 @pytest.mark.asyncio
-async def test_handle_decoded_message_event_does_not_use_recency_fallback_in_strict_mode(
+async def test_handle_decoded_message_event_does_not_use_rf_cache_signal(
     capture: PacketCapture,
 ) -> None:
     published: list[tuple[str | None, str, str | None]] = []
@@ -304,17 +304,19 @@ async def test_handle_decoded_message_event_does_not_use_recency_fallback_in_str
 
 
 @pytest.mark.asyncio
-async def test_handle_decoded_message_event_prefers_correlation_key_signal(
+async def test_handle_decoded_message_event_reads_metadata_signal(
     capture: PacketCapture,
 ) -> None:
     published: list[tuple[str | None, str, str | None]] = []
 
     capture.enable_mqtt = True
     capture.mqtt_connected = True
-    # Recency fallback has different values, but exact-key cache should win.
-    capture.rf_data_cache = {
-        "recent": {"snr": 9.9, "rssi": -66, "timestamp": 50.0},
-    }
+
+    def _publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs.get("topic_type")))
+        return {"attempted": 1, "succeeded": 1}
+
+    capture.safe_publish = _publish
 
     event = types.SimpleNamespace(
         type="CONTACT_MSG_RECV",
@@ -324,79 +326,20 @@ async def test_handle_decoded_message_event_prefers_correlation_key_signal(
             "from": "node-a",
             "pubkey_prefix": "a1b2c3",
             "msg_id": "msg-1",
+            "metadata": {
+                "signal": {
+                    "SNR": 3.14,
+                    "RSSI": -91,
+                }
+            },
         },
     )
 
-    corr_key = capture._build_message_correlation_key(event.payload, "CONTACT_MSG_RECV")
-    assert corr_key is not None
-    capture.message_signal_cache[corr_key] = {
-        "snr": 3.14,
-        "rssi": -91,
-        "timestamp": 50.0,
-    }
-
-    def _publish(topic, payload, **kwargs):
-        published.append((topic, payload, kwargs.get("topic_type")))
-        return {"attempted": 1, "succeeded": 1}
-
-    capture.safe_publish = _publish
-
-    original_time = pc_mod.time.time
-    try:
-        pc_mod.time.time = lambda: 55.0
-        await capture.handle_decoded_message_event(event)
-    finally:
-        pc_mod.time.time = original_time
+    await capture.handle_decoded_message_event(event)
 
     payload_json = json.loads(published[0][1])
     assert payload_json["snr"] == 3.14
     assert payload_json["rssi"] == -91.0
-
-
-@pytest.mark.asyncio
-async def test_handle_decoded_message_event_correlates_with_sender_timestamp_tuple(
-    capture: PacketCapture,
-) -> None:
-    published: list[tuple[str | None, str, str | None]] = []
-
-    capture.enable_mqtt = True
-    capture.mqtt_connected = True
-
-    event_payload = {
-        "type": "PRIV",
-        "text": "Test",
-        "pubkey_prefix": "5203d19bcc67",
-        "sender_timestamp": 1783795526,
-        "txt_type": 0,
-        "path_len": 255,
-        "path_hash_mode": -1,
-    }
-    corr_key = capture._build_message_correlation_key(event_payload, "CONTACT_MSG_RECV")
-    assert corr_key is not None
-    capture.message_signal_cache[corr_key] = {
-        "snr": 12.0,
-        "rssi": -83,
-        "timestamp": 10.0,
-    }
-
-    def _publish(topic, payload, **kwargs):
-        published.append((topic, payload, kwargs.get("topic_type")))
-        return {"attempted": 1, "succeeded": 1}
-
-    capture.safe_publish = _publish
-
-    event = types.SimpleNamespace(type="CONTACT_MSG_RECV", payload=event_payload)
-
-    original_time = pc_mod.time.time
-    try:
-        pc_mod.time.time = lambda: 12.0
-        await capture.handle_decoded_message_event(event)
-    finally:
-        pc_mod.time.time = original_time
-
-    payload_json = json.loads(published[0][1])
-    assert payload_json["snr"] == 12.0
-    assert payload_json["rssi"] == -83.0
 
 
 @pytest.mark.asyncio
