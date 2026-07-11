@@ -917,7 +917,7 @@ class PacketCapture:
             return True
         
         # Check if any configured topics use IATA placeholders
-        topic_types = ['STATUS', 'PACKETS', 'DECODED', 'DEBUG', 'RAW', 'COMMAND']
+        topic_types = ['STATUS', 'PACKETS', 'DECODED', 'DIRECT', 'CHANNEL', 'DEBUG', 'RAW', 'COMMAND']
         for topic_type in topic_types:
             # Check broker-specific topic
             broker_topic = self.get_env(f'MQTT{broker_num}_TOPIC_{topic_type}', '')
@@ -982,6 +982,8 @@ class PacketCapture:
             'STATUS': 'meshcore/{IATA}/{PUBLIC_KEY}/status',
             'PACKETS': 'meshcore/{IATA}/{PUBLIC_KEY}/packets',
             'DECODED': 'meshcore/{IATA}/{PUBLIC_KEY}/decoded',
+            'DIRECT': 'meshcore/{IATA}/{PUBLIC_KEY}/direct',
+            'CHANNEL': 'meshcore/{IATA}/{PUBLIC_KEY}/channel/{CHANNEL}',
             'DEBUG': 'meshcore/{IATA}/{PUBLIC_KEY}/debug',
             'COMMAND': 'meshcore/{IATA}/{PUBLIC_KEY}/command/+'
         }
@@ -989,6 +991,8 @@ class PacketCapture:
             'STATUS': 'meshcore/status',
             'PACKETS': 'meshcore/packets',
             'DECODED': 'meshcore/decoded',
+            'DIRECT': 'meshcore/direct',
+            'CHANNEL': 'meshcore/channel/{CHANNEL}',
             'DEBUG': 'meshcore/debug',
             'COMMAND': 'meshcore/command/+'
         }
@@ -3616,48 +3620,42 @@ class PacketCapture:
                     for mqtt_client_info in self.mqtt_clients:
                         broker_num = mqtt_client_info['broker_num']
                         mqtt_client = mqtt_client_info['client']
-                        decoded_topic = self._resolve_decoded_direction_topic(
+                        message_topic = self._resolve_message_direction_topic(
                             broker_num=broker_num,
                             direction=direction,
                             channel_idx=message_data.get('channel_idx'),
                         )
-                        if decoded_topic:
+                        if message_topic:
                             self.safe_publish(
-                                decoded_topic,
+                                message_topic,
                                 payload_json,
                                 client=mqtt_client,
                                 broker_num=broker_num,
                             )
-                else:
-                    # Fallback for tests/manual invocations without configured clients.
-                    self.safe_publish(None, payload_json, topic_type='decoded')
 
         except Exception as e:
             self.logger.error(f"Error handling decoded message event: {e}")
 
-    def _resolve_decoded_direction_topic(
+    def _resolve_message_direction_topic(
         self,
         broker_num: int,
         direction: str,
         channel_idx: Any,
     ) -> Optional[str]:
-        """Resolve direct/channel decoded topics from the broker decoded base topic."""
-        decoded_base = self.get_topic('decoded', broker_num)
-        if not decoded_base:
-            return None
-
-        base = decoded_base.rstrip('/')
-        if base.endswith('/decoded'):
-            base = base[: -len('/decoded')]
-
+        """Resolve direct/channel topics for decoded message events."""
         if direction == 'channel':
+            channel_topic = self.get_topic('channel', broker_num)
+            if not channel_topic:
+                return None
             try:
                 channel_value = int(channel_idx)
             except (TypeError, ValueError):
                 channel_value = 0
-            return f"{base}/channel/{channel_value}"
+            if '{CHANNEL}' in channel_topic:
+                return channel_topic.replace('{CHANNEL}', str(channel_value))
+            return f"{channel_topic.rstrip('/')}/{channel_value}"
 
-        return f"{base}/direct"
+        return self.get_topic('direct', broker_num)
 
     @staticmethod
     def _coerce_signal_value(value: Any) -> Optional[float]:

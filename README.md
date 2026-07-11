@@ -325,12 +325,12 @@ status  = "meshcore/{IATA}/{PUBLIC_KEY}/status"
 ```
 These flatten to `PACKETCAPTURE_MQTT<n>_TOPIC_<NAME>` (per broker) and
 `PACKETCAPTURE_TOPIC_<NAME>` (global fallback) — supported names: `STATUS`,
-`PACKETS`, `DECODED`, `DEBUG`, `RAW`, `COMMAND`.
+`PACKETS`, `DIRECT`, `CHANNEL`, `DEBUG`, `RAW`, `COMMAND`.
 
 To explicitly disable a topic for a broker (or globally), set it to one of:
 `off`, `none`, `disabled`, `false`, `0`, or an empty string.
 
-Example: keep decoded/private message events off a public broker while enabling
+Example: keep decoded message events (direct + channel) off a public broker while enabling
 them on a local broker:
 ```toml
 [[broker]]
@@ -339,7 +339,8 @@ enabled = true
 server = "mqtt.waev.app"
 
 [broker.topics]
-decoded = "off"
+direct = "off"
+channel = "off"
 
 [[broker]]
 name = "local"
@@ -348,19 +349,9 @@ server = "127.0.0.1"
 port = 1883
 
 [broker.topics]
-decoded = "meshcore/private/{PUBLIC_KEY}/decoded"
+direct = "meshcore/private/{PUBLIC_KEY}/direct"
+channel = "meshcore/private/{PUBLIC_KEY}/channel/{CHANNEL}"
 ```
-
-For decoded message events, the configured `decoded` topic is treated as a base.
-The bridge publishes to direction-specific topics derived from that base:
-
-- direct messages: `{decoded_base_without_/decoded}/direct`
-- channel messages: `{decoded_base_without_/decoded}/channel/{CHANNEL}`
-
-So a decoded base of `meshcore/private/{PUBLIC_KEY}/decoded` publishes to:
-
-- `meshcore/private/{PUBLIC_KEY}/direct`
-- `meshcore/private/{PUBLIC_KEY}/channel/{CHANNEL}`
 
 #### Authentication Methods
 
@@ -611,9 +602,8 @@ Default topic templates (from the shipped `config.toml`):
 
 - `meshcore/{IATA}/{PUBLIC_KEY}/status`: Device online/offline status (plus optional stats)
 - `meshcore/{IATA}/{PUBLIC_KEY}/packets`: Full packet data
-- `meshcore/{IATA}/{PUBLIC_KEY}/decoded` (base): Decoded message base topic
-  - direct decoded messages publish to `meshcore/{IATA}/{PUBLIC_KEY}/direct`
-  - channel decoded messages publish to `meshcore/{IATA}/{PUBLIC_KEY}/channel/{CHANNEL}`
+- `meshcore/{IATA}/{PUBLIC_KEY}/direct`: Decoded direct message events
+- `meshcore/{IATA}/{PUBLIC_KEY}/channel/{CHANNEL}`: Decoded channel message events
 - `meshcore/{IATA}/{PUBLIC_KEY}/raw`: Raw packet data (commented out by default; enable it for e.g. map.w0z.is)
 - `meshcore/{IATA}/{PUBLIC_KEY}/command/+`: Inbound command topic (subscribe)
 

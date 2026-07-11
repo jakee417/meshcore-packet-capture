@@ -96,8 +96,9 @@ services:
       # Uncomment to override with custom topics:
       # - PACKETCAPTURE_TOPIC_STATUS=meshcore/{IATA}/{PUBLIC_KEY}/status
       # - PACKETCAPTURE_TOPIC_PACKETS=meshcore/{IATA}/{PUBLIC_KEY}/packets
+      # - PACKETCAPTURE_TOPIC_DIRECT=meshcore/{IATA}/{PUBLIC_KEY}/direct
+      # - PACKETCAPTURE_TOPIC_CHANNEL=meshcore/{IATA}/{PUBLIC_KEY}/channel/{CHANNEL}
       # - PACKETCAPTURE_TOPIC_RAW=meshcore/{IATA}/{PUBLIC_KEY}/raw
-      # - PACKETCAPTURE_TOPIC_DECODED=meshcore/{IATA}/{PUBLIC_KEY}/decoded
       # - PACKETCAPTURE_TOPIC_DEBUG=meshcore/{IATA}/{PUBLIC_KEY}/debug
       
       # Device settings

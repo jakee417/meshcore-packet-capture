@@ -191,17 +191,28 @@ async def test_publish_status_includes_packet_stats_aliases(capture: PacketCaptu
 async def test_handle_decoded_message_event_publishes_decoded_payload(
     capture: PacketCapture,
 ) -> None:
-    published: list[tuple[str | None, str, str | None]] = []
+    published: list[tuple[str | None, str, object | None, int | None]] = []
 
     capture.enable_mqtt = True
     capture.mqtt_connected = True
     capture.device_name = "node"
     capture.device_public_key = "abc123"
+    client_obj = object()
+    capture.mqtt_clients = [{"client": client_obj, "broker_num": 1, "label": "mqtt1"}]
+
+    def _get_topic(topic_type, broker_num=None):
+        assert broker_num == 1
+        if topic_type == "direct":
+            return "meshcore/private/ABC123/direct"
+        if topic_type == "channel":
+            return "meshcore/private/ABC123/channel/{CHANNEL}"
+        raise AssertionError(f"unexpected topic_type: {topic_type}")
 
     def _publish(topic, payload, **kwargs):
-        published.append((topic, payload, kwargs.get("topic_type")))
+        published.append((topic, payload, kwargs.get("client"), kwargs.get("broker_num")))
         return {"attempted": 1, "succeeded": 1}
 
+    capture.get_topic = _get_topic  # type: ignore[method-assign]
     capture.safe_publish = _publish
 
     event = types.SimpleNamespace(
@@ -218,7 +229,9 @@ async def test_handle_decoded_message_event_publishes_decoded_payload(
     await capture.handle_decoded_message_event(event)
 
     assert published
-    assert published[0][2] == "decoded"
+    assert published[0][0] == "meshcore/private/ABC123/direct"
+    assert published[0][2] is client_obj
+    assert published[0][3] == 1
     payload_json = json.loads(published[0][1])
     assert payload_json["type"] == "DECODED_MESSAGE"
     assert payload_json["direction"] == "direct"
@@ -230,15 +243,24 @@ async def test_handle_decoded_message_event_publishes_decoded_payload(
 async def test_handle_decoded_message_event_includes_payload_signal(
     capture: PacketCapture,
 ) -> None:
-    published: list[tuple[str | None, str, str | None]] = []
+    published: list[tuple[str | None, str]] = []
 
     capture.enable_mqtt = True
     capture.mqtt_connected = True
+    capture.mqtt_clients = [{"client": object(), "broker_num": 1, "label": "mqtt1"}]
+
+    def _get_topic(topic_type, broker_num=None):
+        if topic_type == "direct":
+            return "meshcore/private/ABC123/direct"
+        if topic_type == "channel":
+            return "meshcore/private/ABC123/channel/{CHANNEL}"
+        return None
 
     def _publish(topic, payload, **kwargs):
-        published.append((topic, payload, kwargs.get("topic_type")))
+        published.append((topic, payload))
         return {"attempted": 1, "succeeded": 1}
 
+    capture.get_topic = _get_topic  # type: ignore[method-assign]
     capture.safe_publish = _publish
 
     event = types.SimpleNamespace(
@@ -265,19 +287,28 @@ async def test_handle_decoded_message_event_includes_payload_signal(
 async def test_handle_decoded_message_event_does_not_use_rf_cache_signal(
     capture: PacketCapture,
 ) -> None:
-    published: list[tuple[str | None, str, str | None]] = []
+    published: list[tuple[str | None, str]] = []
 
     capture.enable_mqtt = True
     capture.mqtt_connected = True
+    capture.mqtt_clients = [{"client": object(), "broker_num": 1, "label": "mqtt1"}]
     capture.rf_data_cache = {
         "old": {"snr": 1.0, "rssi": -100, "timestamp": 1.0},
         "recent": {"snr": 7.25, "rssi": -72, "timestamp": 10.0},
     }
 
+    def _get_topic(topic_type, broker_num=None):
+        if topic_type == "direct":
+            return "meshcore/private/ABC123/direct"
+        if topic_type == "channel":
+            return "meshcore/private/ABC123/channel/{CHANNEL}"
+        return None
+
     def _publish(topic, payload, **kwargs):
-        published.append((topic, payload, kwargs.get("topic_type")))
+        published.append((topic, payload))
         return {"attempted": 1, "succeeded": 1}
 
+    capture.get_topic = _get_topic  # type: ignore[method-assign]
     capture.safe_publish = _publish
 
     event = types.SimpleNamespace(
@@ -307,15 +338,24 @@ async def test_handle_decoded_message_event_does_not_use_rf_cache_signal(
 async def test_handle_decoded_message_event_reads_metadata_signal(
     capture: PacketCapture,
 ) -> None:
-    published: list[tuple[str | None, str, str | None]] = []
+    published: list[tuple[str | None, str]] = []
 
     capture.enable_mqtt = True
     capture.mqtt_connected = True
+    capture.mqtt_clients = [{"client": object(), "broker_num": 1, "label": "mqtt1"}]
+
+    def _get_topic(topic_type, broker_num=None):
+        if topic_type == "direct":
+            return "meshcore/private/ABC123/direct"
+        if topic_type == "channel":
+            return "meshcore/private/ABC123/channel/{CHANNEL}"
+        return None
 
     def _publish(topic, payload, **kwargs):
-        published.append((topic, payload, kwargs.get("topic_type")))
+        published.append((topic, payload))
         return {"attempted": 1, "succeeded": 1}
 
+    capture.get_topic = _get_topic  # type: ignore[method-assign]
     capture.safe_publish = _publish
 
     event = types.SimpleNamespace(
@@ -354,9 +394,12 @@ async def test_handle_decoded_message_event_routes_direct_topic_per_broker(
     capture.mqtt_clients = [{"client": client_obj, "broker_num": 1, "label": "mqtt1"}]
 
     def _get_topic(topic_type, broker_num=None):
-        assert topic_type == "decoded"
         assert broker_num == 1
-        return "meshcore/private/ABC123/decoded"
+        if topic_type == "direct":
+            return "meshcore/private/ABC123/direct"
+        if topic_type == "channel":
+            return "meshcore/private/ABC123/channel/{CHANNEL}"
+        return None
 
     def _publish(topic, payload, **kwargs):
         published.append((topic, payload, kwargs.get("client"), kwargs.get("broker_num")))
@@ -395,9 +438,12 @@ async def test_handle_decoded_message_event_routes_channel_topic_per_broker(
     capture.mqtt_clients = [{"client": object(), "broker_num": 1, "label": "mqtt1"}]
 
     def _get_topic(topic_type, broker_num=None):
-        assert topic_type == "decoded"
         assert broker_num == 1
-        return "meshcore/private/ABC123/decoded"
+        if topic_type == "direct":
+            return "meshcore/private/ABC123/direct"
+        if topic_type == "channel":
+            return "meshcore/private/ABC123/channel/{CHANNEL}"
+        return None
 
     def _publish(topic, payload, **_kwargs):
         published.append((topic, payload))
