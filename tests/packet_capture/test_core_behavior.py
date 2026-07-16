@@ -9,7 +9,7 @@ import pytest
 
 from meshcore_packet_capture import packet_capture as pc_mod
 from meshcore_packet_capture.enums import PayloadType
-from meshcore_packet_capture.packet_capture import PacketCapture
+from meshcore_packet_capture.packet_capture import PacketCapture, _normalize_ble_pin
 
 
 @pytest.fixture
@@ -48,6 +48,66 @@ def test_ble_grace_period_allows_then_fails(capture: PacketCapture) -> None:
     assert capture._check_ble_grace_period("timed out") is True
     assert capture._check_ble_grace_period("timed out") is True
     assert capture._check_ble_grace_period("timed out") is False
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("123456", "123456"),
+        ("012345", "012345"),
+        (" 654321 ", "654321"),
+        ("12345", None),
+        ("1234567", None),
+        ("12A456", None),
+        ("１２３４５６", None),
+        (None, None),
+    ],
+)
+def test_normalize_ble_pin(value, expected) -> None:
+    assert _normalize_ble_pin(value) == expected
+
+
+@pytest.mark.asyncio
+async def test_connect_passes_configured_ble_pin(
+    monkeypatch: pytest.MonkeyPatch,
+    capture: PacketCapture,
+) -> None:
+    calls: list[tuple[str | None, dict]] = []
+    device = types.SimpleNamespace(
+        is_connected=True,
+        self_info={
+            "name": "MeshCore Test",
+            "public_key": "aabbcc",
+            "radio_freq": 910.0,
+            "radio_bw": 250.0,
+            "radio_sf": 10,
+            "radio_cr": 5,
+        },
+    )
+
+    class _MeshCoreFactory:
+        @staticmethod
+        async def create_ble(address=None, **kwargs):
+            calls.append((address, kwargs))
+            return device
+
+    async def _no_sleep(_delay):
+        return None
+
+    async def _set_radio_clock():
+        return True
+
+    monkeypatch.setattr(pc_mod.meshcore, "MeshCore", _MeshCoreFactory, raising=False)
+    monkeypatch.setattr(pc_mod.asyncio, "sleep", _no_sleep)
+    monkeypatch.setenv("PACKETCAPTURE_CONNECTION_TYPE", "ble")
+    monkeypatch.setenv("PACKETCAPTURE_BLE_ADDRESS", "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setenv("PACKETCAPTURE_BLE_PIN", "012345")
+    capture.set_radio_clock = _set_radio_clock
+
+    assert await capture.connect() is True
+    assert calls == [
+        ("AA:BB:CC:DD:EE:FF", {"debug": False, "pin": "012345"})
+    ]
 
 
 @pytest.mark.asyncio

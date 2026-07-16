@@ -135,6 +135,18 @@ def enable_tcp_keepalive(transport, idle=10, interval=5, count=3):
     
     if sock is None:
         return False
+
+
+def _normalize_ble_pin(value: Any) -> Optional[str]:
+    """Return a valid six-digit BLE PIN without losing leading zeroes."""
+    if value is None:
+        return None
+    pin = str(value).strip()
+    if not pin:
+        return None
+    if len(pin) == 6 and pin.isascii() and pin.isdigit():
+        return pin
+    return None
     
     try:
         # Enable TCP keepalive
@@ -1868,24 +1880,32 @@ class PacketCapture:
                 ble_address = self.get_env('BLE_ADDRESS', None) or self.get_env('BLE_DEVICE', None)
                 # Support both BLE_DEVICE_NAME and BLE_NAME for device name
                 ble_device_name = self.get_env('BLE_DEVICE_NAME', None) or self.get_env('BLE_NAME', None)
+                configured_ble_pin = self.get_env('BLE_PIN', None)
+                ble_pin = _normalize_ble_pin(configured_ble_pin)
+                if configured_ble_pin and not ble_pin:
+                    self.logger.warning(
+                        "Ignoring invalid BLE_PIN: expected exactly six ASCII digits"
+                    )
+                elif ble_pin:
+                    self.logger.info("Using configured BLE PIN for connection authentication")
                 
-                if self.debug:
-                    self.logger.debug(f"BLE connection config - Address: {ble_address}, Name: {ble_device_name}")
-                    self.logger.debug(f"Environment check - BLE_ADDRESS: {self.get_env('BLE_ADDRESS', None)}, BLE_DEVICE: {self.get_env('BLE_DEVICE', None)}")
-                    self.logger.debug(f"Environment check - BLE_DEVICE_NAME: {self.get_env('BLE_DEVICE_NAME', None)}, BLE_NAME: {self.get_env('BLE_NAME', None)}")
+                # Build kwargs for create_ble; pass configured PIN when set
+                def _make_ble_kwargs() -> dict:
+                    kwargs: dict = {'debug': False}
+                    if ble_pin:
+                        kwargs['pin'] = ble_pin
+                    return kwargs
                 
                 if ble_address:
                     # Direct address connection
                     self.logger.info(f"Connecting via BLE to address: {ble_address}")
-                    if self.debug:
-                        self.logger.debug(f"Using BLE address from environment: {ble_address}")
-                    self.meshcore = await meshcore.MeshCore.create_ble(ble_address, debug=False)
+                    self.meshcore = await meshcore.MeshCore.create_ble(ble_address, **_make_ble_kwargs())
                 elif ble_device_name:
                     # Try to find device by name - the meshcore library handles name matching internally
                     self.logger.info(f"Scanning for BLE device with name: {ble_device_name}")
                     try:
                         # The meshcore library will automatically find devices by name during scanning
-                        self.meshcore = await meshcore.MeshCore.create_ble(ble_device_name, debug=False)
+                        self.meshcore = await meshcore.MeshCore.create_ble(ble_device_name, **_make_ble_kwargs())
                     except Exception as e:
                         self.logger.error(f"Error connecting to device '{ble_device_name}': {e}")
                         # Clean up any partial connection
@@ -1898,11 +1918,11 @@ class PacketCapture:
                             self.meshcore = None
                         # Fallback to general scan
                         self.logger.info("Falling back to general BLE scan...")
-                        self.meshcore = await meshcore.MeshCore.create_ble(debug=False)
+                        self.meshcore = await meshcore.MeshCore.create_ble(**_make_ble_kwargs())
                 else:
                     # No specific device, just scan and connect to first available
                     self.logger.info("Scanning for available BLE devices...")
-                    self.meshcore = await meshcore.MeshCore.create_ble(debug=False)
+                    self.meshcore = await meshcore.MeshCore.create_ble(**_make_ble_kwargs())
             
             # Wait a brief moment for connection to fully establish (especially for BLE)
             if self.meshcore and self.connection_type == 'ble':

@@ -220,6 +220,7 @@ Tests live under `tests/`. Legacy experiments belong in `old/` (gitignored). Opt
 - `PACKETCAPTURE_CONNECTION_TYPE`: `ble`, `serial`, or `tcp`
 - `PACKETCAPTURE_BLE_ADDRESS`: Specific BLE device address (optional)
 - `PACKETCAPTURE_BLE_DEVICE_NAME`: BLE device name to scan for (optional)
+- `PACKETCAPTURE_BLE_PIN`: Six-digit PIN used for BLE connection authentication (optional)
 - `PACKETCAPTURE_SERIAL_PORTS`: Comma-separated list of serial ports to try
 - `PACKETCAPTURE_TCP_HOST`: TCP host address (default: localhost)
 - `PACKETCAPTURE_TCP_PORT`: TCP port number (default: 5000)

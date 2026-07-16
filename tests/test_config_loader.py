@@ -192,6 +192,7 @@ def test_capture_extended_keys_mapped():
         "capture": {
             "connection_retry_delay_max": 30,
             "connection_retry_backoff_multiplier": 1.5,
+            "ble_pin": "012345",
             "drain_messages": False,
             "tcp_keepalive": True,
             "tcp_keepalive_idle": 60,
@@ -205,6 +206,7 @@ def test_capture_extended_keys_mapped():
     env = cl.flatten_config_to_env_dict(cfg)
     assert env["PACKETCAPTURE_CONNECTION_RETRY_DELAY_MAX"] == "30"
     assert env["PACKETCAPTURE_CONNECTION_RETRY_BACKOFF_MULTIPLIER"] == "1.5"
+    assert env["PACKETCAPTURE_BLE_PIN"] == "012345"
     assert env["PACKETCAPTURE_DRAIN_MESSAGES"] == "false"
     assert env["PACKETCAPTURE_TCP_KEEPALIVE_ENABLED"] == "true"
     assert env["PACKETCAPTURE_TCP_KEEPALIVE_IDLE"] == "60"
