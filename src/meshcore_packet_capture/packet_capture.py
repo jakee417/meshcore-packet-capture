@@ -278,9 +278,9 @@ def _parse_size(value: str) -> int:
 class _RotatingPacketLog:
     """Writes one JSON line per packet, with optional size/time rotation.
 
-    ``rotation='off'`` appends to a single file (original behavior). ``'size'``
-    and ``'time'`` use stdlib rotating handlers. Shared verbatim with the
-    meshcore-bot packet capture service.
+    ``rotation='off'`` truncates the output file, preserving the pre-rotation
+    behavior. ``'size'`` and ``'time'`` use stdlib rotating handlers, which
+    append to an existing active log and retain configured backups.
     """
 
     def __init__(self, path, rotation="off", max_bytes=0, backup_count=5, when="midnight"):
@@ -299,7 +299,7 @@ class _RotatingPacketLog:
                 path, when=when, backupCount=backup_count, encoding="utf-8"
             )
         else:
-            self._fh = open(path, "a", encoding="utf-8")
+            self._fh = open(path, "w", encoding="utf-8")
 
     def write_line(self, line: str) -> None:
         if self._handler is not None:

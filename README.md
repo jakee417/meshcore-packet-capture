@@ -406,6 +406,55 @@ PACKETCAPTURE_UPLOAD_PACKET_TYPES=0,1,2
 
 **Note:** If this setting is not configured or is empty, all packet types will be uploaded.
 
+#### Passive Payload Decoding
+
+Payload decoding operates on captured RF packets; it does not fetch or drain the
+companion's message queue. When enabled it adds a nested `decoded` object to packet
+output:
+
+- `GRP_TXT` channel messages are authenticated and decrypted when a matching
+  16-byte channel key is configured.
+- `ADVERT` packets expose structured public-key, role, location, feature, and name
+  fields when present.
+- Direct `TXT_MSG` packets remain encrypted because a passive observer does not
+  have the sender/recipient ECDH session key.
+
+Decoding and MQTT disclosure are separate controls. Decoded data is always present
+in local/console packet output when `decode_payloads` is enabled, but is removed from
+MQTT packet payloads by default. Opt in globally with `include_decoded`, or only for
+specific trusted brokers:
+
+```toml
+[capture]
+decode_payloads = true
+include_decoded = false
+decode_hashtag_channels = ["bot", "weather"]
+decode_channel_keys = "private=00112233445566778899aabbccddeeff"
+decode_include_public = true
+
+[[broker]]
+name = "trusted"
+include_decoded = true
+```
+
+Custom channel keys may be 32-character hex or base64. Treat them as secrets and
+protect the containing TOML or environment file accordingly. See
+`config.toml.example` for TOML settings and `.env` for environment-variable
+equivalents.
+
+#### Packet Log Rotation
+
+`--output PATH` normally truncates `PATH` when the process starts, matching the
+original behavior. Optional size- or time-based rotation retains previous logs:
+
+```toml
+[capture]
+log_rotation = "size"       # off | size | time
+log_max_bytes = "50MB"      # size mode
+log_rotation_when = "midnight" # time mode: midnight, H, D, W0-W6
+log_backup_count = 5
+```
+
 ## Usage
 
 ### Local Usage
