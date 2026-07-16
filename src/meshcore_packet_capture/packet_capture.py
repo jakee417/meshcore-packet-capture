@@ -130,6 +130,18 @@ def enable_tcp_keepalive(transport, idle=10, interval=5, count=3):
     
     if sock is None:
         return False
+
+
+def _normalize_ble_pin(value: Any) -> Optional[str]:
+    """Return a valid six-digit BLE PIN without losing leading zeroes."""
+    if value is None:
+        return None
+    pin = str(value).strip()
+    if not pin:
+        return None
+    if len(pin) == 6 and pin.isascii() and pin.isdigit():
+        return pin
+    return None
     
     try:
         # Enable TCP keepalive
@@ -1479,46 +1491,6 @@ class PacketCapture:
         await self.setup_event_handlers()
         await self._start_auto_message_fetching_if_enabled()
     
-    async def _persist_configured_ble_pin(self):
-        """Write PACKETCAPTURE_BLE_PIN to the device so it stops rotating on reboot.
-
-        MeshCore display firmware generates a random session PIN when prefs.ble_pin is 0.
-        Persisting a fixed PIN via set_devicepin stores it in device prefs for subsequent boots.
-        Best-effort: failure does not fail the connection.
-        """
-        if self.connection_type != 'ble' or not self.meshcore or not self.meshcore.is_connected:
-            return
-        ble_pin = self.get_env('BLE_PIN', None)
-        if not ble_pin:
-            return
-        try:
-            pin_int = int(ble_pin)
-        except (TypeError, ValueError):
-            self.logger.warning(f"Ignoring invalid BLE_PIN value (expected integer): {ble_pin!r}")
-            return
-        if pin_int != 0 and not (100000 <= pin_int <= 999999):
-            self.logger.warning(
-                f"Ignoring BLE_PIN={pin_int}: must be 0 or a 6-digit PIN (100000-999999)"
-            )
-            return
-        if not hasattr(self.meshcore, 'commands') or not hasattr(self.meshcore.commands, 'set_devicepin'):
-            self.logger.debug("set_devicepin not available on this meshcore library version")
-            return
-        try:
-            result = await self.retryable_device_command(
-                lambda: self.meshcore.commands.set_devicepin(pin_int),
-                "set_devicepin",
-                timeout=5.0,
-                max_retries=2,
-                retry_delay=0.2,
-            )
-            if result and hasattr(result, 'type') and result.type != EventType.ERROR:
-                self.logger.info(f"Persisted BLE PIN on device: {'*' * len(str(pin_int))}")
-            else:
-                self.logger.debug(f"set_devicepin did not succeed: {result}")
-        except Exception as e:
-            self.logger.debug(f"Could not persist BLE PIN on device (non-critical): {e}")
-    
     def _check_ble_grace_period(self, failure_reason: str = "failed") -> bool:
         """
         Check if BLE health check failure should be allowed under grace period.
@@ -1781,14 +1753,20 @@ class PacketCapture:
                 ble_address = self.get_env('BLE_ADDRESS', None) or self.get_env('BLE_DEVICE', None)
                 # Support both BLE_DEVICE_NAME and BLE_NAME for device name
                 ble_device_name = self.get_env('BLE_DEVICE_NAME', None) or self.get_env('BLE_NAME', None)
-                ble_pin = self.get_env('BLE_PIN', None)
+                configured_ble_pin = self.get_env('BLE_PIN', None)
+                ble_pin = _normalize_ble_pin(configured_ble_pin)
+                if configured_ble_pin and not ble_pin:
+                    self.logger.warning(
+                        "Ignoring invalid BLE_PIN: expected exactly six ASCII digits"
+                    )
+                elif ble_pin:
+                    self.logger.info("Using configured BLE PIN for connection authentication")
                 
                 # Build kwargs for create_ble; pass configured PIN when set
                 def _make_ble_kwargs() -> dict:
                     kwargs: dict = {'debug': False}
                     if ble_pin:
                         kwargs['pin'] = ble_pin
-                        self.logger.info(f"Using BLE PIN from config: {'*' * len(ble_pin)}")
                     return kwargs
                 
                 if ble_address:
@@ -1897,9 +1875,6 @@ class PacketCapture:
                     self.radio_info = "0,0,0,0"
                     self.logger.info(f"Using fallback device name: {self.device_name}")
                     self.logger.info("You can set PACKETCAPTURE_ORIGIN in .env.local to customize the device name")
-                
-                # Persist configured BLE PIN on the device so it does not rotate on reboot
-                await self._persist_configured_ble_pin()
                 
                 # Set radio clock to current system time
                 await self.set_radio_clock()

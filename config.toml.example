@@ -35,8 +35,8 @@ tcp_host = "localhost"
 tcp_port = 5000
 # ble_address = "XX:XX:XX:XX:XX:XX"
 # ble_device_name = "MeshCore Device"
-# ble_pin = "123456"  # Fixed BLE PIN; also persisted to the device via set_devicepin after connect
-#                     # On Linux, pair once during install (or via bluetoothctl) if connect still hangs
+# ble_pin = "123456"  # Optional six-digit PIN passed to the BLE connection
+#                     # Linux may still require BlueZ pairing during first-time setup
 advert_interval_hours = 47
 # State directory for advert_state.json (installer creates and chowns this path)
 data_dir = "/var/lib/meshcore-packet-capture/data"
