@@ -37,6 +37,7 @@
         pycayennelpp
         pexpect
         pynacl
+        cryptography
       ] ++ [meshcorePackage]);
 
       meshcore-packet-capture = pkgs.stdenv.mkDerivation {
@@ -73,4 +74,3 @@
     };
   };
 }
-

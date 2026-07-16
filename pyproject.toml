@@ -17,6 +17,7 @@ dependencies = [
     "pycayennelpp>=1.0.0",
     "pexpect>=4.8.0",
     "pynacl>=1.5.0",
+    "cryptography>=41.0.0",
 ]
 
 [project.scripts]

@@ -61,6 +61,22 @@ rf_data_timeout = 15.0
 # owner_public_key = ""
 # owner_email = ""
 
+# --- Payload decoding (adds a nested "decoded" object with plain text / structured fields) ---
+# When enabled, GRP_TXT channel messages are decrypted (sender, text), ADVERTs are parsed
+# (name, role, lat/lon), and human-readable type/route labels + path are included. Raw fields
+# are unchanged. Direct messages (TXT_MSG) cannot be decrypted by a passive observer.
+# decode_payloads = false
+# include_decoded = false           # Global default (off); opt in per broker with include_decoded below
+# decode_hashtag_channels = ["bot", "weather"]   # Public/hashtag channels; keys derived from name
+# decode_channel_keys = "name=hexOrBase64,other=..."  # Custom channel keys (16-byte hex or base64)
+# decode_include_public = true      # Include the well-known default "Public" channel key
+
+# --- Packet log rotation (only applies when an output file is given with --output) ---
+# log_rotation = "off"              # off | size | time
+# log_max_bytes = "50MB"            # size mode threshold (accepts 50MB, 10M, ...)
+# log_rotation_when = "midnight"    # time mode interval (midnight, H, D, W0-W6)
+# log_backup_count = 5              # rolled files to keep
+
 # [[broker]] blocks merge by name across files. See presets/letsmesh.toml.
 
 # [[broker]]
@@ -72,6 +88,7 @@ rf_data_timeout = 15.0
 # keepalive = 60
 # qos = 0
 # retain = true
+# include_decoded = true   # Publish the "decoded" object to this broker (default: capture.include_decoded, off)
 #
 # [broker.tls]
 # enabled = false
@@ -86,6 +103,8 @@ rf_data_timeout = 15.0
 # For method = "token" brokers:
 # audience = "mqtt.example.com"
 # token_ttl = 3600  # Optional: JWT lifetime in seconds (default 86400 = 24h)
+# owner = "64_hex_char_public_key"   # Optional; overrides capture.owner_public_key for this broker
+# email = "you@example.com"          # Optional; overrides capture.owner_email for this broker
 #
 # Optional per-broker topic overrides (take precedence over the global [topics];
 # unset keys fall back to [topics]). Keys: status, packets, decoded, debug, raw.

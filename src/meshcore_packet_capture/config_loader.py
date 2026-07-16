@@ -136,6 +136,8 @@ def _broker_to_env_slot(broker: dict[str, Any], slot: int) -> dict[str, str]:
         out[prefix + "CLIENT_ID_PREFIX"] = str(broker["client_id_prefix"])
     if "iata" in broker:
         out[prefix + "IATA"] = str(broker["iata"])
+    if "include_decoded" in broker:
+        out[prefix + "INCLUDE_DECODED"] = _bool_str(broker["include_decoded"])
 
     tls = broker.get("tls") or {}
     if tls:
@@ -262,6 +264,17 @@ def flatten_config_to_env_dict(config: dict[str, Any]) -> dict[str, str]:
         "exit_on_reconnect_fail": "EXIT_ON_RECONNECT_FAIL",
         "owner_public_key": "OWNER_PUBLIC_KEY",
         "owner_email": "OWNER_EMAIL",
+        # Payload decoding (nested "decoded" object; GRP_TXT decryption, ADVERT parse, labels)
+        "decode_payloads": "DECODE_PAYLOADS",
+        "include_decoded": "INCLUDE_DECODED",
+        "decode_hashtag_channels": "DECODE_HASHTAG_CHANNELS",
+        "decode_channel_keys": "DECODE_CHANNEL_KEYS",
+        "decode_include_public": "DECODE_INCLUDE_PUBLIC",
+        # Packet log rotation
+        "log_rotation": "LOG_ROTATION",
+        "log_max_bytes": "LOG_MAX_BYTES",
+        "log_rotation_when": "LOG_ROTATION_WHEN",
+        "log_backup_count": "LOG_BACKUP_COUNT",
         "binary_interface_enabled": "BINARY_INTERFACE_ENABLED",
         "binary_interface_host": "BINARY_INTERFACE_HOST",
         "binary_interface_port": "BINARY_INTERFACE_PORT",
@@ -277,6 +290,9 @@ def flatten_config_to_env_dict(config: dict[str, Any]) -> dict[str, str]:
                 env["PACKETCAPTURE_" + ekey] = str(val)
             elif isinstance(val, int):
                 env["PACKETCAPTURE_" + ekey] = str(val)
+            elif isinstance(val, list):
+                # e.g. decode_hashtag_channels = ["bot", "weather"] -> "bot,weather"
+                env["PACKETCAPTURE_" + ekey] = ",".join(str(v) for v in val)
             else:
                 env["PACKETCAPTURE_" + ekey] = str(val)
 
