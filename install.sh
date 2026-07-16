@@ -15,13 +15,14 @@ if [ -n "${MESHCORE_PACKET_CAPTURE_BRANCH:-}" ] || [ -n "${PACKETCAPTURE_BRANCH:
     BRANCH_EXPLICIT=true
 fi
 TAG=""
+TAG_ARGS=()
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --repo)   REPO="$2"; shift 2 ;;
         --branch) BRANCH="$2"; BRANCH_EXPLICIT=true; shift 2 ;;
-        --tag)    TAG="$2"; EXTRA_ARGS+=("--tag" "$2"); shift 2 ;;
+        --tag)    TAG="$2"; TAG_ARGS=("--tag" "$2"); shift 2 ;;
         *)        EXTRA_ARGS+=("$1"); shift ;;
     esac
 done
@@ -145,13 +146,14 @@ fi
 export INSTALL_REPO="$REPO"
 # Only pin a branch for the Python layer when the user explicitly chose one;
 # otherwise leave it unset so the installer resolves the latest release. A
-# pinned --tag is forwarded via EXTRA_ARGS instead.
+# pinned --tag is forwarded via TAG_ARGS and placed before the install
+# subcommand so argparse accepts it as a global option.
 if [ "$BRANCH_EXPLICIT" = true ]; then
     export INSTALL_BRANCH="$BOOT_REF"
 fi
 cd "$TMP_DIR"
 if [ -r /dev/tty ]; then
-    python3 -m installer install "${EXTRA_ARGS[@]}" < /dev/tty
+    python3 -m installer "${TAG_ARGS[@]}" install "${EXTRA_ARGS[@]}" < /dev/tty
 else
-    python3 -m installer install "${EXTRA_ARGS[@]}"
+    python3 -m installer "${TAG_ARGS[@]}" install "${EXTRA_ARGS[@]}"
 fi
