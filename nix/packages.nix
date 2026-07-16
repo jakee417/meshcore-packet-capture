@@ -42,7 +42,7 @@
 
       meshcore-packet-capture = pkgs.stdenv.mkDerivation {
         pname = "meshcore-packet-capture";
-        version = "2.0.0";
+        version = "2.1.0";
         src = ./.;
 
         nativeBuildInputs = [pkgs.makeWrapper];
