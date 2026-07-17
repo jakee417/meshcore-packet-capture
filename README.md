@@ -653,6 +653,77 @@ and [Per-Broker Topic Overrides](#per-broker-topic-overrides). The classic flat 
 (`meshcore/status`, `meshcore/packets`, `meshcore/raw`) still works if you set the
 topics explicitly.
 
+### MQTT Command Ingress (Inbound, per-broker opt-in)
+
+Optional feature that allows a private MQTT broker to trigger radio TX (`send_msg`, `send_chan_msg`). **Disabled by default** and must be configured per-broker — there is no global `[topics]` fallback, to avoid accidental enablement on community presets.
+
+#### Minimal config (ACL-only trust)
+
+```toml
+[[broker]]
+name = "private"
+enabled = true
+server = "mqtt.example.com"
+# ... auth ...
+
+[broker.command]
+commands_enabled = true                                       # REQUIRED gate
+topic_command = "meshcore/{IATA}/{PUBLIC_KEY}/command/+"      # REQUIRED - + is MQTT wildcard
+# Publish to: .../command/send_msg or .../command/send_chan_msg
+```
+
+Env: `PACKETCAPTURE_MQTT1_COMMANDS_ENABLED=true` + `PACKETCAPTURE_MQTT1_TOPIC_COMMAND="meshcore/{IATA}/{PUBLIC_KEY}/command/+"` (+ = MQTT wildcard for command name)
+
+#### Recommended secure config (with HMAC)
+
+```toml
+[broker.command]
+commands_enabled = true
+topic_command = "meshcore/{IATA}/{PUBLIC_KEY}/command/+"
+command_hmac_key = "your-shared-secret-min-32-chars"  # RECOMMENDED
+# optional hardening:
+# command_max_rate = 10          # default 10 cmds per window
+# command_rate_window = 60       # default 60s
+# command_max_age = 300          # default 300s max payload age
+# command_future_skew = 60       # default 60s future skew allowed
+```
+
+If `command_hmac_key` is set, every payload **must** include a valid `hmac` (hex HMAC-SHA256 of `command_type.timestamp.nonce.canonical_json_core`). Without HMAC, trust is broker ACLs only (you will see a warning).
+
+#### Publishing
+
+Command type comes from the **last topic segment**, not payload:
+
+* `meshcore/SEA/ABC123/command/send_msg` → direct message
+* `meshcore/SEA/ABC123/command/send_chan_msg` → channel message
+
+Payload (JSON):
+* **Required:** `timestamp` (epoch int/float or ISO8601) — replay protection
+* **Recommended:** `nonce`/`id` — deduplication
+* **Required if HMAC set:** `hmac`/`signature`
+* `send_msg`: `destination` (hex pubkey) + `message`
+* `send_chan_msg`: `channel` (int) + `message`
+
+```bash
+# direct
+mosquitto_pub -t "meshcore/SEA/ABC123/command/send_msg" -m '{
+  "destination": "a1b2c3...",
+  "message": "hello from mqtt",
+  "timestamp": 1710000000,
+  "nonce": "uuid"
+}'
+
+# channel
+mosquitto_pub -t "meshcore/SEA/ABC123/command/send_chan_msg" -m '{
+  "channel": 0,
+  "message": "hello channel",
+  "timestamp": 1710000000,
+  "nonce": "uuid2"
+}'
+```
+
+Security hardening built-in: retained messages dropped, timestamp freshness check, nonce dedup cache (10 min), per-broker rate limit token bucket, topic verification via `topic_matches_sub`, log sanitization, command type from topic to prevent ACL bypass.
+
 ## Troubleshooting
 
 ### Connection Issues

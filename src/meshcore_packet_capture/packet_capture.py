@@ -1091,7 +1091,19 @@ class PacketCapture:
                 raw=True,
             )
             if broker_topic_raw is not None:
+                # Empty string explicitly disables the topic for this broker (opt-out)
+                if broker_topic_raw == "":
+                    return None
                 return self.resolve_topic_template(broker_topic_raw, broker_num)
+
+        # COMMAND topics must be configured per-broker only; no global fallback
+        # This prevents accidental enablement on all brokers including community presets
+        if topic_type_upper == 'COMMAND':
+            if self.debug:
+                self.logger.debug(
+                    f"No per-broker COMMAND topic configured for broker {broker_num}, skipping (global fallback disabled for security)"
+                )
+            return None
 
         # Fall back to global topic (raw mode)
         global_topic_raw = self.get_env(f'TOPIC_{topic_type_upper}', raw=True)

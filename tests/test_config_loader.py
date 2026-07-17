@@ -149,6 +149,38 @@ def test_flatten_broker_topic_token():
     assert env["PACKETCAPTURE_MQTT1_TOPIC_PACKETS"] == "meshrank/uplink/{TOKEN}/{PUBLIC_KEY}/packets"
 
 
+def test_flatten_broker_command_settings():
+    cfg = {
+        "broker": [
+            {
+                "name": "local",
+                "enabled": True,
+                "server": "localhost",
+                "command": {
+                    "commands_enabled": True,
+                    "topic_command": "meshcore/private/{PUBLIC_KEY}/command/+",
+                    "command_hmac_key": "secret-key",
+                    "command_max_rate": 7,
+                    "command_rate_window": 45,
+                    "command_max_age": 120,
+                    "command_future_skew": 15,
+                },
+            }
+        ]
+    }
+    env = cl.flatten_config_to_env_dict(cfg)
+    assert env["PACKETCAPTURE_MQTT1_COMMANDS_ENABLED"] == "true"
+    assert (
+        env["PACKETCAPTURE_MQTT1_TOPIC_COMMAND"]
+        == "meshcore/private/{PUBLIC_KEY}/command/+"
+    )
+    assert env["PACKETCAPTURE_MQTT1_COMMAND_HMAC_KEY"] == "secret-key"
+    assert env["PACKETCAPTURE_MQTT1_COMMAND_MAX_RATE"] == "7"
+    assert env["PACKETCAPTURE_MQTT1_COMMAND_RATE_WINDOW"] == "45"
+    assert env["PACKETCAPTURE_MQTT1_COMMAND_MAX_AGE"] == "120"
+    assert env["PACKETCAPTURE_MQTT1_COMMAND_FUTURE_SKEW"] == "15"
+
+
 def test_apply_config_respects_existing_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.delenv("PACKETCAPTURE_IATA", raising=False)
     base = tmp_path / "base.toml"

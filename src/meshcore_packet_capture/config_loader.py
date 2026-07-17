@@ -173,6 +173,22 @@ def _broker_to_env_slot(broker: dict[str, Any], slot: int) -> dict[str, str]:
         u = tkey.upper()
         out[f"{prefix}TOPIC_{u}"] = str(tval)
 
+    command = broker.get("command") or {}
+    if "commands_enabled" in command:
+        out[prefix + "COMMANDS_ENABLED"] = _bool_str(command["commands_enabled"])
+    if "topic_command" in command:
+        out[prefix + "TOPIC_COMMAND"] = str(command["topic_command"])
+    if "command_hmac_key" in command:
+        out[prefix + "COMMAND_HMAC_KEY"] = str(command["command_hmac_key"])
+    if "command_max_rate" in command:
+        out[prefix + "COMMAND_MAX_RATE"] = str(int(command["command_max_rate"]))
+    if "command_rate_window" in command:
+        out[prefix + "COMMAND_RATE_WINDOW"] = str(int(command["command_rate_window"]))
+    if "command_max_age" in command:
+        out[prefix + "COMMAND_MAX_AGE"] = str(int(command["command_max_age"]))
+    if "command_future_skew" in command:
+        out[prefix + "COMMAND_FUTURE_SKEW"] = str(int(command["command_future_skew"]))
+
     return out
 
 
