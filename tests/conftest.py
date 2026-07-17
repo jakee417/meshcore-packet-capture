@@ -129,3 +129,10 @@ def run_user_unit(tmp_path):
         assert command is not None
         return subprocess.run(command, cwd=working, env=env, capture_output=True, text=True, timeout=15)
     return run
+
+
+@pytest.fixture
+def capture():
+    from meshcore_packet_capture.packet_capture import PacketCapture
+
+    return PacketCapture(enable_mqtt=False)
