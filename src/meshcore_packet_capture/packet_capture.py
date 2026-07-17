@@ -44,6 +44,7 @@ from .payload_decode import (
 )
 from .direct_capture import direct_topic_enabled_on_any_broker, resolve_direct_topic
 from .channel_capture import channel_topic_enabled_on_any_broker, resolve_channel_topic
+from .command_capture import handle_mqtt_message, process_mqtt_command, subscribe_command_topic
 from .decoded_capture import handle_decoded_message_event as handle_decoded_message_event_impl
 
 # Import MQTT client
@@ -2270,7 +2271,9 @@ class PacketCapture:
         if rc == 0:
             self.mqtt_connected = True
             self.logger.info(f"Connected to MQTT broker: {broker_name}")
-            
+
+            subscribe_command_topic(self, client, broker_num)
+
             # Clear disconnect timestamp if this was a reconnection
             if broker_num and broker_num in self.mqtt_disconnect_timestamps:
                 import time
@@ -2288,6 +2291,16 @@ class PacketCapture:
             self.logger.debug(f"MQTT broker {broker_name} connected, waiting for device connection...")
         else:
             self.logger.error(f"MQTT connection failed for {broker_name} with code {rc}")
+
+    def on_mqtt_message(self, client, userdata, msg):
+        """Handle inbound MQTT command messages and forward to MeshCore commands."""
+        handle_mqtt_message(self, userdata, msg)
+
+    async def _process_mqtt_command(
+        self, command_type: str, payload_data: Dict[str, Any], broker_num: Optional[int]
+    ) -> None:
+        """Execute supported MeshCore commands from MQTT command payloads."""
+        await process_mqtt_command(self, command_type, payload_data, broker_num)
 
     def on_mqtt_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         broker_name = userdata.get('name', 'unknown') if userdata else 'unknown'
@@ -2484,7 +2497,8 @@ class PacketCapture:
             # Set callbacks
             mqtt_client.on_connect = self.on_mqtt_connect
             mqtt_client.on_disconnect = self.on_mqtt_disconnect
-            
+            mqtt_client.on_message = self.on_mqtt_message
+
             # Get connection parameters
             server = self.get_env(f'MQTT{broker_num}_SERVER', "")
             if not server:
