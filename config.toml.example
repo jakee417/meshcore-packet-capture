@@ -109,6 +109,35 @@ rf_data_timeout = 15.0
 # email = "you@example.com"          # Optional; overrides capture.owner_email for this broker
 #
 # Optional per-broker topic overrides (take precedence over the global [topics];
-# unset keys fall back to [topics]). Keys: status, packets, decoded, debug, raw.
+# unset keys fall back to [topics]) for status/packets/decoded/debug/raw.
+# COMMAND is intentionally per-broker only (no global fallback) to prevent
+# accidental enablement on community brokers.
+# Keys for general topics: status, packets, decoded, debug, raw.
 # [broker.topics]
 # packets = "custom/{IATA}/{PUBLIC_KEY}/packets"
+
+# --- MQTT Command Ingress (per-broker only, explicit opt-in) ---
+# Allows MQTT to trigger radio TX (send_msg, send_chan_msg). Secure with broker ACLs.
+#
+# REQUIRED (both on same broker) - either disabled or fully set:
+#   [broker.command]
+#   commands_enabled = true                              # explicit gate, topic alone does NOT enable
+#   topic_command = "meshcore/{IATA}/{PUBLIC_KEY}/command/+"  # MQTT wildcard: matches send_msg and send_chan_msg
+#   # Examples you would publish to:
+#   #   meshcore/{IATA}/{PUBLIC_KEY}/command/send_msg       -> direct message
+#   #   meshcore/{IATA}/{PUBLIC_KEY}/command/send_chan_msg  -> channel message
+#
+# OPTIONAL hardening (recommended):
+#   command_hmac_key = "your-shared-secret-min-32-chars" # if set, payload MUST include valid hmac
+#   command_max_rate = 10                                # max cmds per window (default 10)
+#   command_rate_window = 60                             # rate-limit window seconds (default 60)
+#   command_max_age = 300                                # reject if timestamp older than N sec (default 300)
+#   command_future_skew = 60                             # allow N sec future skew (default 60)
+#
+# Payload (JSON): timestamp required (epoch/ISO8601), nonce recommended, hmac required if key set.
+#   send_msg: {"destination":"<hex pubkey>","message":"hi","timestamp":1710000000,"nonce":"uuid"}
+#   send_chan_msg: {"channel":0,"message":"hi","timestamp":1710000000,"nonce":"uuid"}
+#   With HMAC: add "hmac":"hex-hmac-sha256(command_type.timestamp.nonce.canonical_json_core)"
+# Command type comes from last topic segment (.../command/send_msg), not payload field.
+# Retained messages are always dropped. See README for full details and examples.
+
