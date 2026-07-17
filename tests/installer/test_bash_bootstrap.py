@@ -35,6 +35,17 @@ def test_install_sh_default_repo_and_branch():
     assert "LOCAL_INSTALL" in text
 
 
+def test_install_sh_user_service_uses_repo_local_configs():
+    text = (REPO_ROOT / "install.sh").read_text()
+
+    assert "--user-service" in text
+    assert "MESHCORE_PACKETCAPTURE_ENV_DIR=$REPO_DIR" in text
+    assert "CONFIG_ARGS_ESCAPED" in text
+    assert 'ExecStart=$REPO_DIR/.venv/bin/python -m meshcore_packet_capture ${CONFIG_ARGS_ESCAPED[*]}' in text
+    assert 'if [ -f "$REPO_DIR/config.toml" ]; then' in text
+    assert "config.d" in text
+
+
 def test_install_sh_release_ref_handling():
     text = (REPO_ROOT / "install.sh").read_text()
     # Accepts a pinned release tag and forwards it to the Python installer.
